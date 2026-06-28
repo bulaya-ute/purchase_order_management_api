@@ -1,0 +1,31 @@
+# Build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+
+# Rider / VS / VS Code
+.vs/
+.idea/
+*.user
+*.suo
+.vscode/
+
+# Test results
+[Tt]est[Rr]esults/
+*.trx
+*.coverage
+*.coveragexml
+
+# User-specific / secrets (never commit connection strings or secrets)
+appsettings.*.local.json
+secrets.json
+*.pfx
+
+# OS
+.DS_Store
+Thumbs.db
