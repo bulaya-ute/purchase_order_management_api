@@ -1,12 +1,20 @@
 using Microsoft.EntityFrameworkCore;
 using PurchaseOrderManagement.Api.Entities;
+using PurchaseOrderManagement.Api.Services;
 
 namespace PurchaseOrderManagement.Api.Data;
 
 public class AppDbContext : DbContext
 {
+    private readonly ICurrentUser? _currentUser;
+
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
     {
+    }
+
+    public AppDbContext(DbContextOptions<AppDbContext> options, ICurrentUser currentUser) : base(options)
+    {
+        _currentUser = currentUser;
     }
 
     public DbSet<Company> Companies => Set<Company>();
@@ -65,9 +73,11 @@ public class AppDbContext : DbContext
     {
         var utcNow = DateTime.UtcNow;
 
-        // TODO: populate CreatedByUserId/UpdatedByUserId/DeletedByUserId from the acting user
-        // once authentication/current-user context exists (docs/05: cookie-based session auth,
-        // not yet implemented). For now these are left as whatever the caller explicitly set.
+        // Acting user for audit columns, from the cookie-session current-user accessor.
+        // Null for system/seed operations run outside an authenticated HTTP request
+        // (CreatedByUserId/UpdatedByUserId/DeletedByUserId are nullable for exactly this reason —
+        // docs/05-CROSS-CUTTING-CONVENTIONS.md).
+        var actingUserId = _currentUser?.UserId;
 
         foreach (var entry in ChangeTracker.Entries<IAuditableEntity>())
         {
@@ -75,9 +85,11 @@ public class AppDbContext : DbContext
             {
                 case EntityState.Added:
                     entry.Entity.CreatedAtUtc = utcNow;
+                    entry.Entity.CreatedByUserId ??= actingUserId;
                     break;
                 case EntityState.Modified:
                     entry.Entity.UpdatedAtUtc = utcNow;
+                    entry.Entity.UpdatedByUserId = actingUserId;
                     break;
             }
         }
@@ -90,10 +102,12 @@ public class AppDbContext : DbContext
                 entry.State = EntityState.Modified;
                 entry.Entity.IsDeleted = true;
                 entry.Entity.DeletedAtUtc = utcNow;
+                entry.Entity.DeletedByUserId = actingUserId;
 
                 if (entry.Entity is IAuditableEntity auditable)
                 {
                     auditable.UpdatedAtUtc = utcNow;
+                    auditable.UpdatedByUserId = actingUserId;
                 }
             }
         }
