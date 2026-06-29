@@ -33,6 +33,10 @@ builder.Services.AddScoped<ISupplierService, SupplierService>();
 builder.Services.AddScoped<IQuotationService, QuotationService>();
 builder.Services.AddScoped<IBidService, BidService>();
 
+// PO core slice (Purchase Orders + Approvals workflow) — docs/03, docs/04.
+builder.Services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
+builder.Services.AddScoped<IApprovalService, ApprovalService>();
+
 // Cookie-based server session auth (docs/05-CROSS-CUTTING-CONVENTIONS.md): httpOnly, Secure,
 // SameSite=Strict, sliding expiration. This is an API consumed by a SPA, not a page-rendering
 // app, so unauthenticated/forbidden requests must return 401/403 status codes rather than
@@ -66,6 +70,12 @@ builder.Services.AddAuthorization();
 builder.Services.AddControllers(options =>
 {
     options.Filters.Add<ServiceExceptionFilter>();
+})
+.AddJsonOptions(o =>
+{
+    // Serialize enums (PurchaseOrderStatus, ApprovalStatus, FileSourceType) as strings, not
+    // ints — clearer for the TS SPA and stable across enum reordering.
+    o.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
 });
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
