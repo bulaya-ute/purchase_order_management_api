@@ -29,3 +29,6 @@ secrets.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Local file storage uploads (docs/05-CROSS-CUTTING-CONVENTIONS.md, File storage & URLs)
+PurchaseOrderManagement.Api/App_Data/uploads/

@@ -24,6 +24,15 @@ builder.Services.AddScoped<ICompanyService, CompanyService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IRoleService, RoleService>();
 
+// Procurement slice (Suppliers, Files, Quotations, SupplierBids) — docs/02, docs/07.
+// Stateless disk/URL helpers are Singleton; everything touching the DbContext is Scoped.
+builder.Services.AddSingleton<IFileStorage, LocalDiskFileStorage>();
+builder.Services.AddSingleton<IFileUrlResolver, FileUrlResolver>();
+builder.Services.AddScoped<IFileService, FileService>();
+builder.Services.AddScoped<ISupplierService, SupplierService>();
+builder.Services.AddScoped<IQuotationService, QuotationService>();
+builder.Services.AddScoped<IBidService, BidService>();
+
 // Cookie-based server session auth (docs/05-CROSS-CUTTING-CONVENTIONS.md): httpOnly, Secure,
 // SameSite=Strict, sliding expiration. This is an API consumed by a SPA, not a page-rendering
 // app, so unauthenticated/forbidden requests must return 401/403 status codes rather than
