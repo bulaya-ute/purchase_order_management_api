@@ -9,6 +9,7 @@ public class QuotationSummaryDto
     public int FileId { get; set; }
     public string FileUrl { get; set; } = null!;
     public string? OriginalFileName { get; set; }
+    public string? Description { get; set; }
     public string? QuoteReference { get; set; }
     public DateTime QuoteDate { get; set; }
     public DateTime? ExpiresAtUtc { get; set; }

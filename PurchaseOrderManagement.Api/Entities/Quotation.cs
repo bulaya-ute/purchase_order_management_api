@@ -15,6 +15,7 @@ public class Quotation : BaseEntity
     public int FileId { get; set; }
     public StoredFile File { get; set; } = null!;
 
+    public string? Description { get; set; }
     public string? QuoteReference { get; set; }
     public DateTime QuoteDate { get; set; }
 

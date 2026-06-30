@@ -11,6 +11,9 @@ public class CreateQuotationRequest
     [Required]
     public int FileId { get; set; }
 
+    [StringLength(512)]
+    public string? Description { get; set; }
+
     [StringLength(128)]
     public string? QuoteReference { get; set; }
 

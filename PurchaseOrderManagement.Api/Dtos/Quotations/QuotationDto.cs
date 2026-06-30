@@ -8,6 +8,7 @@ public class QuotationDto
     public int SupplierId { get; set; }
     public string SupplierName { get; set; } = null!;
     public FileDto File { get; set; } = null!;
+    public string? Description { get; set; }
     public string? QuoteReference { get; set; }
     public DateTime QuoteDate { get; set; }
     public DateTime? ExpiresAtUtc { get; set; }
