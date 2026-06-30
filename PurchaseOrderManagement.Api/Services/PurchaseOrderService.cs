@@ -53,9 +53,11 @@ public class PurchaseOrderService : IPurchaseOrderService
                 PONumber = po.PONumber,
                 CompanyId = po.CompanyId,
                 CompanyName = po.Company.Name,
+                TargetCompanyId = po.TargetCompanyId,
+                TargetCompanyName = po.TargetCompany == null ? null : po.TargetCompany.Name,
                 IssuerUserId = po.IssuerUserId,
                 IssuerUserName = po.IssuerUser.FullName,
-                Currency = po.Currency,
+                Currency = po.CurrencyCode,
                 Status = po.Status,
                 TotalAmount = po.TotalAmount,
                 PaidAtUtc = po.PaidAtUtc,
@@ -80,8 +82,11 @@ public class PurchaseOrderService : IPurchaseOrderService
         // entities (see BidService for the same note).
         var po = await _db.PurchaseOrders
             .Include(p => p.Company)
+            .Include(p => p.TargetCompany)
             .Include(p => p.IssuerUser)
+            .Include(p => p.PurchaseOrderType)
             .Include(p => p.PurchaseOrderLineItems)
+            .Include(p => p.CurrencyTotals)
             .Include(p => p.Approvals).ThenInclude(a => a.RequiredRole)
             .Include(p => p.Approvals).ThenInclude(a => a.RequiredUser)
             .Include(p => p.Approvals).ThenInclude(a => a.ApprovedByUser)
@@ -107,16 +112,50 @@ public class PurchaseOrderService : IPurchaseOrderService
             throw ServiceException.Validation($"Company {request.CompanyId} was not found.");
         }
 
+        if (request.TargetCompanyId is int targetCompanyId)
+        {
+            var targetExists = await _db.Companies.AnyAsync(c => c.Id == targetCompanyId, cancellationToken);
+            if (!targetExists)
+            {
+                throw ServiceException.Validation($"Target company {targetCompanyId} was not found.");
+            }
+        }
+
         var issuerUserId = _currentUser.UserId
             ?? throw ServiceException.Forbidden("An authenticated user is required to create a purchase order.");
+
+        // Currency is optional — defaults to ZMW server-side when omitted (plan section D).
+        // Always validated against the active Currency table (so a missing/deactivated seed
+        // surfaces a clear error here, not a confusing FK violation at SaveChanges).
+        var currencyCode = await CurrencyValidation.NormalizeAndValidateAsync(
+            _db, request.Currency ?? CurrencyValidation.DefaultCurrencyCode, cancellationToken);
+
+        PurchaseOrderType? poType = null;
+        if (request.PurchaseOrderTypeId is int typeId)
+        {
+            poType = await _db.PurchaseOrderTypes
+                .Include(t => t.ApprovalSteps)
+                .Include(t => t.AllowedCreatorRoles)
+                .FirstOrDefaultAsync(t => t.Id == typeId, cancellationToken)
+                ?? throw ServiceException.Validation($"Purchase order type {typeId} was not found.");
+
+            if (!poType.IsActive)
+            {
+                throw ServiceException.Validation($"Purchase order type {typeId} is not active.");
+            }
+
+            await EnsureCreatorAllowedForTypeAsync(poType, issuerUserId, cancellationToken);
+        }
 
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);
 
         var po = new PurchaseOrder
         {
             CompanyId = request.CompanyId,
+            TargetCompanyId = request.TargetCompanyId,
             IssuerUserId = issuerUserId,
-            Currency = request.Currency.Trim().ToUpperInvariant(),
+            CurrencyCode = currencyCode,
+            PurchaseOrderTypeId = poType?.Id,
             Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
             Status = PurchaseOrderStatus.Draft,
             // PONumber requires the Id, which only exists after the first insert (docs/03).
@@ -127,6 +166,24 @@ public class PurchaseOrderService : IPurchaseOrderService
         await _db.SaveChangesAsync(cancellationToken);
 
         po.PONumber = "PO-" + po.Id.ToString("D4");
+
+        if (poType is not null)
+        {
+            // Auto-generate Approval rows directly from the type's steps — bypasses
+            // AddApprovalDefinitionAsync entirely, and the chain is then immutable (plan section C).
+            foreach (var step in poType.ApprovalSteps.OrderBy(s => s.SequenceOrder).ThenBy(s => s.Id))
+            {
+                _db.Approvals.Add(new Approval
+                {
+                    PurchaseOrderId = po.Id,
+                    RequiredRoleId = step.RequiredRoleId,
+                    RequiredUserId = step.RequiredUserId,
+                    SequenceOrder = step.SequenceOrder,
+                    Status = ApprovalStatus.Pending,
+                });
+            }
+        }
+
         await _db.SaveChangesAsync(cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
@@ -142,7 +199,17 @@ public class PurchaseOrderService : IPurchaseOrderService
 
         ApplyConcurrencyToken(po, request.RowVersion);
 
-        po.Currency = request.Currency.Trim().ToUpperInvariant();
+        if (request.TargetCompanyId is int targetCompanyId)
+        {
+            var targetExists = await _db.Companies.AnyAsync(c => c.Id == targetCompanyId, cancellationToken);
+            if (!targetExists)
+            {
+                throw ServiceException.Validation($"Target company {targetCompanyId} was not found.");
+            }
+        }
+
+        po.CurrencyCode = await CurrencyValidation.NormalizeAndValidateAsync(_db, request.Currency, cancellationToken);
+        po.TargetCompanyId = request.TargetCompanyId;
         po.Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim();
 
         await SaveWithConcurrencyAsync(cancellationToken, "purchase order");
@@ -163,6 +230,8 @@ public class PurchaseOrderService : IPurchaseOrderService
             Description = request.Description.Trim(),
             Quantity = request.Quantity,
             UnitCost = request.UnitCost,
+            // Direct-entry POs are single-currency: lines inherit the PO's own Currency (docs/03).
+            CurrencyCode = po.CurrencyCode,
             DiscountPercentage = request.DiscountPercentage,
             TaxPercentage = request.TaxPercentage,
         };
@@ -194,6 +263,7 @@ public class PurchaseOrderService : IPurchaseOrderService
         item.Description = request.Description.Trim();
         item.Quantity = request.Quantity;
         item.UnitCost = request.UnitCost;
+        item.CurrencyCode = po.CurrencyCode;
         item.DiscountPercentage = request.DiscountPercentage;
         item.TaxPercentage = request.TaxPercentage;
 
@@ -256,6 +326,7 @@ public class PurchaseOrderService : IPurchaseOrderService
     {
         var po = await GetTrackedPurchaseOrderAsync(purchaseOrderId, cancellationToken);
         EnsureDraft(po, "define approvals for");
+        EnsureNotTyped(po, "define approvals for");
 
         var hasRole = request.RequiredRoleId.HasValue;
         var hasUser = request.RequiredUserId.HasValue;
@@ -301,6 +372,7 @@ public class PurchaseOrderService : IPurchaseOrderService
     {
         var po = await GetTrackedPurchaseOrderAsync(purchaseOrderId, cancellationToken);
         EnsureDraft(po, "remove an approval definition from");
+        EnsureNotTyped(po, "remove an approval definition from");
 
         var approval = await _db.Approvals
             .FirstOrDefaultAsync(a => a.Id == approvalId && a.PurchaseOrderId == purchaseOrderId, cancellationToken)
@@ -333,7 +405,8 @@ public class PurchaseOrderService : IPurchaseOrderService
         }
 
         // Approval rows already exist (created as Pending while Draft, per the definitions
-        // composed there); submit just flips the PO's status to Open and freezes composition.
+        // composed there, or auto-generated from the PO's type); submit just flips the PO's
+        // status to Open and freezes composition.
         po.Status = PurchaseOrderStatus.Open;
 
         await _db.SaveChangesAsync(cancellationToken);
@@ -421,22 +494,8 @@ public class PurchaseOrderService : IPurchaseOrderService
     {
         var po = await _db.PurchaseOrders.FirstAsync(p => p.Id == purchaseOrderId, cancellationToken);
 
-        var totals = await _db.PurchaseOrderLineItems
-            .Where(li => li.PurchaseOrderId == purchaseOrderId)
-            .GroupBy(li => 1)
-            .Select(g => new
-            {
-                Subtotal = g.Sum(li => li.LineSubtotal),
-                TaxAmount = g.Sum(li => li.TaxAmount),
-                TotalAmount = g.Sum(li => li.LineTotal),
-            })
-            .FirstOrDefaultAsync(cancellationToken);
-
-        po.Subtotal = totals?.Subtotal ?? 0m;
-        po.TaxAmount = totals?.TaxAmount ?? 0m;
-        po.TotalAmount = totals?.TotalAmount ?? 0m;
-
-        await _db.SaveChangesAsync(cancellationToken);
+        // Direct-entry edits (this method's only caller) are never bid-based.
+        await PurchaseOrderTotalsRecompute.RecomputeAsync(_db, po, isBidBased: false, cancellationToken);
     }
 
     private async Task<PurchaseOrder> GetTrackedPurchaseOrderAsync(int id, CancellationToken cancellationToken)
@@ -459,6 +518,39 @@ public class PurchaseOrderService : IPurchaseOrderService
         if (po.Status != PurchaseOrderStatus.Draft)
         {
             throw ServiceException.Conflict($"Cannot {action} purchase order {po.Id}: composition is frozen once it leaves Draft (current status: {po.Status}).");
+        }
+    }
+
+    /// <summary>
+    /// Makes a typed PO's auto-generated approval chain immutable: the creator cannot add to or
+    /// remove from it (plan section C — closes the "pick a friendly approver" loophole).
+    /// </summary>
+    private static void EnsureNotTyped(PurchaseOrder po, string action)
+    {
+        if (po.PurchaseOrderTypeId is not null)
+        {
+            throw ServiceException.Conflict($"Cannot {action} purchase order {po.Id}: its approval chain is fixed by its purchase order type and cannot be edited.");
+        }
+    }
+
+    private async Task EnsureCreatorAllowedForTypeAsync(PurchaseOrderType poType, int userId, CancellationToken cancellationToken)
+    {
+        if (poType.AllowedCreatorRoles.Count == 0)
+        {
+            // No restriction configured for this type — anyone may create it.
+            return;
+        }
+
+        var allowedRoleIds = poType.AllowedCreatorRoles.Select(r => r.RoleId).ToHashSet();
+
+        var userRoleIds = await _db.UserRoles
+            .Where(ur => ur.UserId == userId)
+            .Select(ur => ur.RoleId)
+            .ToListAsync(cancellationToken);
+
+        if (!userRoleIds.Any(allowedRoleIds.Contains))
+        {
+            throw ServiceException.Forbidden($"You do not hold a role permitted to create a purchase order of type '{poType.Name}'.");
         }
     }
 
@@ -496,12 +588,25 @@ public class PurchaseOrderService : IPurchaseOrderService
                 sb.SupplierId,
                 SupplierName = sb.Supplier.SupplierName,
                 sb.Notes,
-                BidTotal = sb.SupplierBidItems.Sum(i => (decimal?)i.LineTotal) ?? 0m,
+                Totals = sb.SupplierBidItems
+                    .GroupBy(i => i.CurrencyCode)
+                    .Select(g => new CurrencyTotalDto
+                    {
+                        Currency = g.Key,
+                        Subtotal = g.Sum(i => i.LineSubtotal),
+                        TaxAmount = g.Sum(i => i.TaxAmount),
+                        TotalAmount = g.Sum(i => i.LineTotal),
+                    })
+                    .ToList(),
                 ItemCount = sb.SupplierBidItems.Count,
-                QuotationCount = sb.Quotations.Count,
-                ExpiryDates = sb.Quotations
-                    .Where(q => q.ExpiresAtUtc != null)
-                    .Select(q => q.ExpiresAtUtc!.Value)
+                QuotationCount = sb.SupplierBidItems
+                    .Where(i => i.SourceQuotationLineItemId != null)
+                    .Select(i => i.SourceQuotationLineItem!.QuotationId)
+                    .Distinct()
+                    .Count(),
+                ExpiryDates = sb.SupplierBidItems
+                    .Where(i => i.SourceQuotationLineItemId != null && i.SourceQuotationLineItem!.Quotation.ExpiresAtUtc != null)
+                    .Select(i => i.SourceQuotationLineItem!.Quotation.ExpiresAtUtc!.Value)
                     .ToList(),
             })
             .ToListAsync(cancellationToken);
@@ -513,7 +618,7 @@ public class PurchaseOrderService : IPurchaseOrderService
             SupplierId = b.SupplierId,
             SupplierName = b.SupplierName,
             Notes = b.Notes,
-            BidTotal = b.BidTotal,
+            Totals = b.Totals,
             ItemCount = b.ItemCount,
             QuotationCount = b.QuotationCount,
             HasExpiredQuotation = b.ExpiryDates.Any(d => d < now),
@@ -535,6 +640,7 @@ public class PurchaseOrderService : IPurchaseOrderService
         Description = item.Description,
         Quantity = item.Quantity,
         UnitCost = item.UnitCost,
+        Currency = item.CurrencyCode,
         DiscountPercentage = item.DiscountPercentage,
         DiscountAmount = item.DiscountAmount,
         TaxPercentage = item.TaxPercentage,
@@ -577,17 +683,37 @@ public class PurchaseOrderService : IPurchaseOrderService
         var lineItems = po.PurchaseOrderLineItems.OrderBy(li => li.Id).Select(ToLineItemDto).ToList();
         var approvals = po.Approvals.OrderBy(a => a.SequenceOrder).ThenBy(a => a.Id).Select(ToApprovalDto).ToList();
 
+        var currencyTotals = po.CurrencyTotals
+            .OrderBy(t => t.CurrencyCode)
+            .Select(t => new CurrencyTotalDto
+            {
+                Currency = t.CurrencyCode,
+                Subtotal = t.Subtotal,
+                TaxAmount = t.TaxAmount,
+                TotalAmount = t.TotalAmount,
+            })
+            .ToList();
+
+        // A bid-based PO whose awarded bid's line items span more than one currency: the flat
+        // Subtotal/TaxAmount/TotalAmount fields were zeroed by PurchaseOrderTotalsRecompute, and
+        // the vector (more than one currency row) is authoritative instead.
+        var hasMultiCurrencyTotals = currencyTotals.Count > 1;
+
         return new PurchaseOrderDto
         {
             Id = po.Id,
             PONumber = po.PONumber,
             CompanyId = po.CompanyId,
             CompanyName = po.Company.Name,
+            TargetCompanyId = po.TargetCompanyId,
+            TargetCompanyName = po.TargetCompany?.Name,
             IssuerUserId = po.IssuerUserId,
             IssuerUserName = po.IssuerUser.FullName,
-            Currency = po.Currency,
+            Currency = po.CurrencyCode,
             Status = po.Status,
             Notes = po.Notes,
+            PurchaseOrderTypeId = po.PurchaseOrderTypeId,
+            PurchaseOrderTypeName = po.PurchaseOrderType?.Name,
             AwardedSupplierBidId = po.AwardedSupplierBidId,
             AwardedAtUtc = po.AwardedAtUtc,
             AwardedByUserId = po.AwardedByUserId,
@@ -596,6 +722,8 @@ public class PurchaseOrderService : IPurchaseOrderService
             Subtotal = po.Subtotal,
             TaxAmount = po.TaxAmount,
             TotalAmount = po.TotalAmount,
+            HasMultiCurrencyTotals = hasMultiCurrencyTotals,
+            Totals = currencyTotals,
             CreatedAtUtc = po.CreatedAtUtc,
             LineItems = lineItems,
             Approvals = approvals,

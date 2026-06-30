@@ -18,6 +18,8 @@ public static class DataSeeder
     private const string SuperAdminRoleName = "Super Admin";
     private const string DefaultAdminEmail = "admin@local";
     private const string DefaultAdminPasswordFallback = "ChangeMe!123";
+    private const string DefaultCurrencyCode = "ZMW";
+    private const string DefaultCurrencyName = "Zambian Kwacha";
 
     public static async Task SeedAsync(IServiceProvider services, CancellationToken cancellationToken = default)
     {
@@ -26,6 +28,14 @@ public static class DataSeeder
         var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
         var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
         var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(typeof(DataSeeder).FullName!);
+
+        var zmw = await db.Currencies.FirstOrDefaultAsync(c => c.Code == DefaultCurrencyCode, cancellationToken);
+        if (zmw is null)
+        {
+            zmw = new Currency { Code = DefaultCurrencyCode, Name = DefaultCurrencyName, IsActive = true };
+            db.Currencies.Add(zmw);
+            await db.SaveChangesAsync(cancellationToken);
+        }
 
         var company = await db.Companies.FirstOrDefaultAsync(c => c.ParentCompanyId == null, cancellationToken);
         if (company is null)

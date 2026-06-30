@@ -9,6 +9,8 @@ public class PurchaseOrderSummaryDto
     public string PONumber { get; set; } = null!;
     public int CompanyId { get; set; }
     public string CompanyName { get; set; } = null!;
+    public int? TargetCompanyId { get; set; }
+    public string? TargetCompanyName { get; set; }
     public int IssuerUserId { get; set; }
     public string IssuerUserName { get; set; } = null!;
     public string Currency { get; set; } = null!;

@@ -6,6 +6,11 @@ using PurchaseOrderManagement.Api.Entities;
 
 namespace PurchaseOrderManagement.Api.Services;
 
+/// <summary>
+/// Quotations are a standalone library (plan section A): obtained from suppliers before any
+/// bid/PO exists, kept for audit/future reference, and optionally "used" later by sourcing one of
+/// their line items into a SupplierBidItem (any bid for the same supplier, not just "the" bid).
+/// </summary>
 public class QuotationService : IQuotationService
 {
     private readonly AppDbContext _db;
@@ -17,33 +22,48 @@ public class QuotationService : IQuotationService
         _fileUrlResolver = fileUrlResolver;
     }
 
-    public async Task<IReadOnlyList<QuotationSummaryDto>> ListForBidAsync(int supplierBidId, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<QuotationSummaryDto>> ListAsync(int? supplierId, bool? isExpired, bool? isUsed, CancellationToken cancellationToken)
     {
-        await EnsureBidExistsAsync(supplierBidId, cancellationToken);
+        var now = DateTime.UtcNow;
 
-        var quotations = await _db.Quotations.AsNoTracking()
-            .Where(q => q.SupplierBidId == supplierBidId)
+        var query = _db.Quotations.AsNoTracking().AsQueryable();
+
+        if (supplierId is int sid)
+        {
+            query = query.Where(q => q.SupplierId == sid);
+        }
+
+        if (isExpired is bool expired)
+        {
+            query = expired
+                ? query.Where(q => q.ExpiresAtUtc != null && q.ExpiresAtUtc.Value < now)
+                : query.Where(q => q.ExpiresAtUtc == null || q.ExpiresAtUtc.Value >= now);
+        }
+
+        var quotations = await query
             .OrderByDescending(q => q.QuoteDate).ThenBy(q => q.Id)
             .Select(q => new
             {
                 q.Id,
-                q.SupplierBidId,
+                q.SupplierId,
+                SupplierName = q.Supplier.SupplierName,
                 q.FileId,
                 File = q.File,
                 q.QuoteReference,
                 q.QuoteDate,
                 q.ExpiresAtUtc,
+                q.CurrencyCode,
                 q.Notes,
                 LineItemCount = q.QuotationLineItems.Count,
+                IsUsed = q.QuotationLineItems.Any(li => li.SupplierBidItems.Any()),
             })
             .ToListAsync(cancellationToken);
 
-        var now = DateTime.UtcNow;
-
-        return quotations.Select(q => new QuotationSummaryDto
+        var projected = quotations.Select(q => new QuotationSummaryDto
         {
             Id = q.Id,
-            SupplierBidId = q.SupplierBidId,
+            SupplierId = q.SupplierId,
+            SupplierName = q.SupplierName,
             FileId = q.FileId,
             FileUrl = _fileUrlResolver.Resolve(q.File),
             OriginalFileName = q.File.OriginalFileName,
@@ -51,25 +71,38 @@ public class QuotationService : IQuotationService
             QuoteDate = q.QuoteDate,
             ExpiresAtUtc = q.ExpiresAtUtc,
             IsExpired = q.ExpiresAtUtc.HasValue && q.ExpiresAtUtc.Value < now,
+            Currency = q.CurrencyCode,
             Notes = q.Notes,
             LineItemCount = q.LineItemCount,
-        }).ToList();
+            IsUsed = q.IsUsed,
+        });
+
+        if (isUsed is bool used)
+        {
+            projected = projected.Where(q => q.IsUsed == used);
+        }
+
+        return projected.ToList();
     }
 
-    public async Task<QuotationDto?> GetAsync(int supplierBidId, int quotationId, CancellationToken cancellationToken)
+    public async Task<QuotationDto?> GetAsync(int quotationId, CancellationToken cancellationToken)
     {
         var quotation = await _db.Quotations.AsNoTracking()
+            .Include(q => q.Supplier)
             .Include(q => q.File)
-            .Include(q => q.QuotationLineItems)
-            .Where(q => q.SupplierBidId == supplierBidId && q.Id == quotationId)
-            .FirstOrDefaultAsync(cancellationToken);
+            .Include(q => q.QuotationLineItems).ThenInclude(li => li.SupplierBidItems)
+            .FirstOrDefaultAsync(q => q.Id == quotationId, cancellationToken);
 
         return quotation is null ? null : ToDto(quotation);
     }
 
-    public async Task<QuotationDto> CreateAsync(int supplierBidId, CreateQuotationRequest request, CancellationToken cancellationToken)
+    public async Task<QuotationDto> CreateAsync(CreateQuotationRequest request, CancellationToken cancellationToken)
     {
-        await EnsureBidExistsAsync(supplierBidId, cancellationToken);
+        var supplierExists = await _db.Suppliers.AnyAsync(s => s.Id == request.SupplierId, cancellationToken);
+        if (!supplierExists)
+        {
+            throw ServiceException.Validation($"Supplier {request.SupplierId} was not found.");
+        }
 
         // FileId is mandatory — reject creation without a valid uploaded file (docs/02).
         var fileExists = await _db.Files.AnyAsync(f => f.Id == request.FileId, cancellationToken);
@@ -83,13 +116,16 @@ public class QuotationService : IQuotationService
             throw ServiceException.Validation("A quotation requires at least one line item.");
         }
 
+        var currencyCode = await CurrencyValidation.NormalizeAndValidateAsync(_db, request.Currency, cancellationToken);
+
         var quotation = new Quotation
         {
-            SupplierBidId = supplierBidId,
+            SupplierId = request.SupplierId,
             FileId = request.FileId,
             QuoteReference = string.IsNullOrWhiteSpace(request.QuoteReference) ? null : request.QuoteReference.Trim(),
             QuoteDate = request.QuoteDate,
             ExpiresAtUtc = request.ExpiresAtUtc,
+            CurrencyCode = currencyCode,
             Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
         };
 
@@ -106,16 +142,7 @@ public class QuotationService : IQuotationService
         _db.Quotations.Add(quotation);
         await _db.SaveChangesAsync(cancellationToken);
 
-        return (await GetAsync(supplierBidId, quotation.Id, cancellationToken))!;
-    }
-
-    private async Task EnsureBidExistsAsync(int supplierBidId, CancellationToken cancellationToken)
-    {
-        var exists = await _db.SupplierBids.AnyAsync(sb => sb.Id == supplierBidId, cancellationToken);
-        if (!exists)
-        {
-            throw ServiceException.NotFound($"Supplier bid {supplierBidId} was not found.");
-        }
+        return (await GetAsync(quotation.Id, cancellationToken))!;
     }
 
     private QuotationDto ToDto(Quotation quotation)
@@ -124,7 +151,8 @@ public class QuotationService : IQuotationService
         return new QuotationDto
         {
             Id = quotation.Id,
-            SupplierBidId = quotation.SupplierBidId,
+            SupplierId = quotation.SupplierId,
+            SupplierName = quotation.Supplier.SupplierName,
             File = new FileDto
             {
                 Id = quotation.File.Id,
@@ -137,7 +165,9 @@ public class QuotationService : IQuotationService
             QuoteDate = quotation.QuoteDate,
             ExpiresAtUtc = quotation.ExpiresAtUtc,
             IsExpired = quotation.ExpiresAtUtc.HasValue && quotation.ExpiresAtUtc.Value < now,
+            Currency = quotation.CurrencyCode,
             Notes = quotation.Notes,
+            IsUsed = quotation.QuotationLineItems.Any(li => li.SupplierBidItems.Any()),
             LineItems = quotation.QuotationLineItems
                 .OrderBy(li => li.Id)
                 .Select(li => new QuotationLineItemDto

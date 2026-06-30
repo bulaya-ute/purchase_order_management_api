@@ -33,9 +33,16 @@ builder.Services.AddScoped<ISupplierService, SupplierService>();
 builder.Services.AddScoped<IQuotationService, QuotationService>();
 builder.Services.AddScoped<IBidService, BidService>();
 
+// Currency reference data (plan section A/D) — admin-managed, validated against by every
+// currency-bearing field (Quotation, SupplierBidItem, PurchaseOrder, PurchaseOrderLineItem).
+builder.Services.AddScoped<ICurrencyService, CurrencyService>();
+
 // PO core slice (Purchase Orders + Approvals workflow) — docs/03, docs/04.
 builder.Services.AddScoped<IPurchaseOrderService, PurchaseOrderService>();
 builder.Services.AddScoped<IApprovalService, ApprovalService>();
+
+// PO type presets (plan section C) — admin-defined fixed approval chains + creator-role restriction.
+builder.Services.AddScoped<IPurchaseOrderTypeService, PurchaseOrderTypeService>();
 
 // Cookie-based server session auth (docs/05-CROSS-CUTTING-CONVENTIONS.md): httpOnly, Secure,
 // SameSite=Strict, sliding expiration. This is an API consumed by a SPA, not a page-rendering

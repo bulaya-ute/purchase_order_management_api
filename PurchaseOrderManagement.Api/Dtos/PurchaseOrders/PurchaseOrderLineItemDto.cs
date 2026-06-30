@@ -8,6 +8,7 @@ public class PurchaseOrderLineItemDto
     public string Description { get; set; } = null!;
     public decimal Quantity { get; set; }
     public decimal UnitCost { get; set; }
+    public string Currency { get; set; } = null!;
     public decimal? DiscountPercentage { get; set; }
     public decimal DiscountAmount { get; set; }
     public decimal? TaxPercentage { get; set; }

@@ -5,10 +5,10 @@ using PurchaseOrderManagement.Api.Services;
 
 namespace PurchaseOrderManagement.Api.Controllers;
 
-// Supplier bids + bid items — the comparison-ready procurement data (docs/02, docs/07).
-// Bids are created/listed under a PO; individual bids and their items are addressed directly.
-// Awarding and copying items into PurchaseOrderLineItems are intentionally NOT here (PO core slice).
-// Authz: reads + mutations = any authenticated user (flagged assumption pending Q7).
+// Supplier bids are a standalone library (plan section A): a bid can exist on its own and later
+// be attached to a Draft PO. Awarding and copying items into PurchaseOrderLineItems are
+// intentionally NOT here (PO core slice). Authz: reads + mutations = any authenticated user
+// (flagged assumption pending Q7).
 [ApiController]
 [Authorize]
 public class BidsController : ControllerBase
@@ -18,6 +18,28 @@ public class BidsController : ControllerBase
     public BidsController(IBidService bidService)
     {
         _bidService = bidService;
+    }
+
+    // ----- Standalone bids library -----
+
+    [HttpGet("api/supplier-bids")]
+    public async Task<ActionResult<IReadOnlyList<SupplierBidSummaryDto>>> List(
+        [FromQuery] int? supplierId, [FromQuery] int? purchaseOrderId, [FromQuery] bool? unattachedOnly, CancellationToken cancellationToken)
+    {
+        return Ok(await _bidService.ListAsync(supplierId, purchaseOrderId, unattachedOnly, cancellationToken));
+    }
+
+    [HttpPost("api/supplier-bids")]
+    public async Task<ActionResult<SupplierBidDto>> CreateStandalone([FromBody] CreateSupplierBidRequest request, CancellationToken cancellationToken)
+    {
+        var created = await _bidService.CreateAsync(purchaseOrderId: null, request, cancellationToken);
+        return CreatedAtAction(nameof(Get), new { id = created.Id }, created);
+    }
+
+    [HttpPost("api/supplier-bids/{supplierBidId:int}/attach")]
+    public async Task<ActionResult<SupplierBidDto>> Attach(int supplierBidId, [FromBody] AttachSupplierBidRequest request, CancellationToken cancellationToken)
+    {
+        return Ok(await _bidService.AttachToPurchaseOrderAsync(supplierBidId, request.PurchaseOrderId, cancellationToken));
     }
 
     // ----- Bids scoped to a purchase order -----

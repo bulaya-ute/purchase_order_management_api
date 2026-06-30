@@ -70,7 +70,7 @@ public class ApprovalService : IApprovalService
                 PONumber = a.PurchaseOrder.PONumber,
                 CompanyName = a.PurchaseOrder.Company.Name,
                 TotalAmount = a.PurchaseOrder.TotalAmount,
-                Currency = a.PurchaseOrder.Currency,
+                Currency = a.PurchaseOrder.CurrencyCode,
                 RequiredRoleId = a.RequiredRoleId,
                 RequiredRoleName = a.RequiredRole?.Name,
                 RequiredUserId = a.RequiredUserId,
@@ -207,6 +207,8 @@ public class ApprovalService : IApprovalService
         po.Status = PurchaseOrderStatus.Approved;
         await _db.SaveChangesAsync(cancellationToken);
 
+        var isBidBased = po.AwardedSupplierBidId is not null;
+
         if (po.AwardedSupplierBidId is int awardedBidId)
         {
             var bidItems = await _db.SupplierBidItems.AsNoTracking()
@@ -223,6 +225,7 @@ public class ApprovalService : IApprovalService
                     Description = bidItem.Description,
                     Quantity = bidItem.Quantity,
                     UnitCost = bidItem.UnitCost,
+                    CurrencyCode = bidItem.CurrencyCode,
                     DiscountPercentage = bidItem.DiscountPercentage,
                     TaxPercentage = bidItem.TaxPercentage,
                 };
@@ -236,24 +239,7 @@ public class ApprovalService : IApprovalService
             await _db.SaveChangesAsync(cancellationToken);
         }
 
-        // Recompute aggregates whether bid-based (lines just created) or direct-entry
-        // (lines already existed) — keeps Subtotal/TaxAmount/TotalAmount authoritative.
-        var totals = await _db.PurchaseOrderLineItems
-            .Where(li => li.PurchaseOrderId == purchaseOrderId)
-            .GroupBy(li => 1)
-            .Select(g => new
-            {
-                Subtotal = g.Sum(li => li.LineSubtotal),
-                TaxAmount = g.Sum(li => li.TaxAmount),
-                TotalAmount = g.Sum(li => li.LineTotal),
-            })
-            .FirstOrDefaultAsync(cancellationToken);
-
-        po.Subtotal = totals?.Subtotal ?? 0m;
-        po.TaxAmount = totals?.TaxAmount ?? 0m;
-        po.TotalAmount = totals?.TotalAmount ?? 0m;
-
-        await _db.SaveChangesAsync(cancellationToken);
+        await PurchaseOrderTotalsRecompute.RecomputeAsync(_db, po, isBidBased, cancellationToken);
     }
 
     // ----- Helpers -----

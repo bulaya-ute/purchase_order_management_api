@@ -17,6 +17,10 @@ public class UpdateSupplierBidItemRequest
     [Range(0, double.MaxValue)]
     public decimal UnitCost { get; set; }
 
+    [Required]
+    [StringLength(3, MinimumLength = 3)]
+    public string Currency { get; set; } = null!;
+
     [Range(0, 100)]
     public decimal? DiscountPercentage { get; set; }
 

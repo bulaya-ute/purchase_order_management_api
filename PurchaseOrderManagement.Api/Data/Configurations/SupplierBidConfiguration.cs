@@ -17,6 +17,7 @@ public class SupplierBidConfiguration : IEntityTypeConfiguration<SupplierBid>
 
         builder.Property(sb => sb.Notes).HasMaxLength(2048);
 
+        // PurchaseOrderId is now nullable — a bid can be a standalone library record.
         builder.HasOne(sb => sb.PurchaseOrder)
             .WithMany(po => po.SupplierBids)
             .HasForeignKey(sb => sb.PurchaseOrderId)

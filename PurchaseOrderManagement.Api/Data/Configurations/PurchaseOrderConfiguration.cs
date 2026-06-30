@@ -18,9 +18,15 @@ public class PurchaseOrderConfiguration : IEntityTypeConfiguration<PurchaseOrder
         builder.Property(po => po.PONumber).IsRequired().HasMaxLength(32);
         builder.HasIndex(po => po.PONumber).IsUnique();
 
-        builder.Property(po => po.Currency)
+        builder.Property(po => po.CurrencyCode)
+            .HasColumnName("CurrencyCode")
             .IsRequired()
             .HasColumnType("char(3)");
+
+        builder.HasOne(po => po.Currency)
+            .WithMany()
+            .HasForeignKey(po => po.CurrencyCode)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.Property(po => po.Status)
             .HasConversion<string>()
@@ -42,6 +48,14 @@ public class PurchaseOrderConfiguration : IEntityTypeConfiguration<PurchaseOrder
             .HasForeignKey(po => po.CompanyId)
             .OnDelete(DeleteBehavior.Restrict);
 
+        // TargetCompanyId = "who the purchase is for", distinct from CompanyId (the issuer).
+        // Separate inverse navigation (no WithMany on Company) keeps Company.PurchaseOrders
+        // meaning "issued by", avoiding an ambiguous double-FK collection.
+        builder.HasOne(po => po.TargetCompany)
+            .WithMany()
+            .HasForeignKey(po => po.TargetCompanyId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         builder.HasOne(po => po.IssuerUser)
             .WithMany()
             .HasForeignKey(po => po.IssuerUserId)
@@ -50,6 +64,11 @@ public class PurchaseOrderConfiguration : IEntityTypeConfiguration<PurchaseOrder
         builder.HasOne(po => po.AwardedByUser)
             .WithMany()
             .HasForeignKey(po => po.AwardedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(po => po.PurchaseOrderType)
+            .WithMany(t => t.PurchaseOrders)
+            .HasForeignKey(po => po.PurchaseOrderTypeId)
             .OnDelete(DeleteBehavior.Restrict);
 
         // AwardedSupplierBidId <-> SupplierBids.PurchaseOrderId is a circular FK pair.

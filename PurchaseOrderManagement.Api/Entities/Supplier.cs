@@ -11,4 +11,5 @@ public class Supplier : BaseEntity
     public string Address { get; set; } = null!;
 
     public ICollection<SupplierBid> SupplierBids { get; set; } = new List<SupplierBid>();
+    public ICollection<Quotation> Quotations { get; set; } = new List<Quotation>();
 }

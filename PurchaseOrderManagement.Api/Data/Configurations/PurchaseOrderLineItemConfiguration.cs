@@ -25,6 +25,16 @@ public class PurchaseOrderLineItemConfiguration : IEntityTypeConfiguration<Purch
         builder.Property(li => li.LineSubtotal).HasColumnType("numeric(18,2)").IsRequired();
         builder.Property(li => li.LineTotal).HasColumnType("numeric(18,2)").IsRequired();
 
+        builder.Property(li => li.CurrencyCode)
+            .HasColumnName("CurrencyCode")
+            .HasColumnType("char(3)")
+            .IsRequired();
+
+        builder.HasOne(li => li.Currency)
+            .WithMany()
+            .HasForeignKey(li => li.CurrencyCode)
+            .OnDelete(DeleteBehavior.Restrict);
+
         builder.HasOne(li => li.PurchaseOrder)
             .WithMany(po => po.PurchaseOrderLineItems)
             .HasForeignKey(li => li.PurchaseOrderId)

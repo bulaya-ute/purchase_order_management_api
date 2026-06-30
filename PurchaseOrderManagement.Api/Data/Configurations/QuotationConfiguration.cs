@@ -17,9 +17,19 @@ public class QuotationConfiguration : IEntityTypeConfiguration<Quotation>
         builder.Property(q => q.ExpiresAtUtc);
         builder.Property(q => q.Notes).HasMaxLength(2048);
 
-        builder.HasOne(q => q.SupplierBid)
-            .WithMany(sb => sb.Quotations)
-            .HasForeignKey(q => q.SupplierBidId)
+        builder.Property(q => q.CurrencyCode)
+            .HasColumnName("CurrencyCode")
+            .HasColumnType("char(3)")
+            .IsRequired();
+
+        builder.HasOne(q => q.Currency)
+            .WithMany()
+            .HasForeignKey(q => q.CurrencyCode)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(q => q.Supplier)
+            .WithMany(s => s.Quotations)
+            .HasForeignKey(q => q.SupplierId)
             .OnDelete(DeleteBehavior.Restrict);
 
         // FileId is mandatory — every quotation must have an uploaded file.

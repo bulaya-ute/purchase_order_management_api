@@ -1,13 +1,15 @@
 namespace PurchaseOrderManagement.Api.Entities;
 
 /// <summary>
-/// A document a supplier sent for a given bid. A single supplier bid can have multiple
-/// quotations. See docs/02-SUPPLIERS-AND-PROCUREMENT.md.
+/// A standalone library record of a document a supplier sent — exists independently of any
+/// SupplierBid/PurchaseOrder (kept for audit/future reference even if never used). A quotation
+/// line item may later be sourced into a SupplierBidItem (any bid for the same supplier), at
+/// which point it becomes "used". See docs/02-SUPPLIERS-AND-PROCUREMENT.md.
 /// </summary>
 public class Quotation : BaseEntity
 {
-    public int SupplierBidId { get; set; }
-    public SupplierBid SupplierBid { get; set; } = null!;
+    public int SupplierId { get; set; }
+    public Supplier Supplier { get; set; } = null!;
 
     /// <summary>Mandatory — every quotation must have an uploaded file.</summary>
     public int FileId { get; set; }
@@ -18,6 +20,9 @@ public class Quotation : BaseEntity
 
     /// <summary>When the supplier's quoted prices lapse. Null = no stated expiry.</summary>
     public DateTime? ExpiresAtUtc { get; set; }
+
+    public string CurrencyCode { get; set; } = null!;
+    public Currency Currency { get; set; } = null!;
 
     public string? Notes { get; set; }
 

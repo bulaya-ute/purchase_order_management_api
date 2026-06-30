@@ -165,6 +165,26 @@ namespace PurchaseOrderManagement.Api.Migrations
                     b.ToTable("Companies", (string)null);
                 });
 
+            modelBuilder.Entity("PurchaseOrderManagement.Api.Entities.Currency", b =>
+                {
+                    b.Property<string>("Code")
+                        .HasColumnType("char(3)");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.HasKey("Code");
+
+                    b.ToTable("Currencies", (string)null);
+                });
+
             modelBuilder.Entity("PurchaseOrderManagement.Api.Entities.PurchaseOrder", b =>
                 {
                     b.Property<int>("Id")
@@ -191,9 +211,10 @@ namespace PurchaseOrderManagement.Api.Migrations
                     b.Property<int?>("CreatedByUserId")
                         .HasColumnType("integer");
 
-                    b.Property<string>("Currency")
+                    b.Property<string>("CurrencyCode")
                         .IsRequired()
-                        .HasColumnType("char(3)");
+                        .HasColumnType("char(3)")
+                        .HasColumnName("CurrencyCode");
 
                     b.Property<DateTime?>("DeletedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -224,6 +245,9 @@ namespace PurchaseOrderManagement.Api.Migrations
                     b.Property<DateTime?>("PaidAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int?>("PurchaseOrderTypeId")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -231,6 +255,9 @@ namespace PurchaseOrderManagement.Api.Migrations
 
                     b.Property<decimal>("Subtotal")
                         .HasColumnType("numeric(18,2)");
+
+                    b.Property<int?>("TargetCompanyId")
+                        .HasColumnType("integer");
 
                     b.Property<decimal>("TaxAmount")
                         .HasColumnType("numeric(18,2)");
@@ -260,6 +287,8 @@ namespace PurchaseOrderManagement.Api.Migrations
 
                     b.HasIndex("CreatedByUserId");
 
+                    b.HasIndex("CurrencyCode");
+
                     b.HasIndex("DeletedByUserId");
 
                     b.HasIndex("IssuerUserId");
@@ -267,9 +296,48 @@ namespace PurchaseOrderManagement.Api.Migrations
                     b.HasIndex("PONumber")
                         .IsUnique();
 
+                    b.HasIndex("PurchaseOrderTypeId");
+
+                    b.HasIndex("TargetCompanyId");
+
                     b.HasIndex("UpdatedByUserId");
 
                     b.ToTable("PurchaseOrders", (string)null);
+                });
+
+            modelBuilder.Entity("PurchaseOrderManagement.Api.Entities.PurchaseOrderCurrencyTotal", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CurrencyCode")
+                        .IsRequired()
+                        .HasColumnType("char(3)")
+                        .HasColumnName("CurrencyCode");
+
+                    b.Property<int>("PurchaseOrderId")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("Subtotal")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("TaxAmount")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("TotalAmount")
+                        .HasColumnType("numeric(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CurrencyCode");
+
+                    b.HasIndex("PurchaseOrderId", "CurrencyCode")
+                        .IsUnique();
+
+                    b.ToTable("PurchaseOrderCurrencyTotals", (string)null);
                 });
 
             modelBuilder.Entity("PurchaseOrderManagement.Api.Entities.PurchaseOrderLineItem", b =>
@@ -285,6 +353,11 @@ namespace PurchaseOrderManagement.Api.Migrations
 
                     b.Property<int?>("CreatedByUserId")
                         .HasColumnType("integer");
+
+                    b.Property<string>("CurrencyCode")
+                        .IsRequired()
+                        .HasColumnType("char(3)")
+                        .HasColumnName("CurrencyCode");
 
                     b.Property<DateTime?>("DeletedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -348,6 +421,8 @@ namespace PurchaseOrderManagement.Api.Migrations
 
                     b.HasIndex("CreatedByUserId");
 
+                    b.HasIndex("CurrencyCode");
+
                     b.HasIndex("DeletedByUserId");
 
                     b.HasIndex("PurchaseOrderId");
@@ -357,6 +432,176 @@ namespace PurchaseOrderManagement.Api.Migrations
                     b.HasIndex("UpdatedByUserId");
 
                     b.ToTable("PurchaseOrderLineItems", (string)null);
+                });
+
+            modelBuilder.Entity("PurchaseOrderManagement.Api.Entities.PurchaseOrderType", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("CreatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("DeletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("DeletedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("UpdatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("DeletedByUserId");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.ToTable("PurchaseOrderTypes", (string)null);
+                });
+
+            modelBuilder.Entity("PurchaseOrderManagement.Api.Entities.PurchaseOrderTypeAllowedCreatorRole", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("CreatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("DeletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("DeletedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<int>("PurchaseOrderTypeId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("RoleId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("UpdatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("DeletedByUserId");
+
+                    b.HasIndex("RoleId");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.HasIndex("PurchaseOrderTypeId", "RoleId")
+                        .IsUnique();
+
+                    b.ToTable("PurchaseOrderTypeAllowedCreatorRoles", (string)null);
+                });
+
+            modelBuilder.Entity("PurchaseOrderManagement.Api.Entities.PurchaseOrderTypeApprovalStep", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("CreatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("DeletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("DeletedByUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<int>("PurchaseOrderTypeId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("RequiredRoleId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("RequiredUserId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SequenceOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("UpdatedByUserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("DeletedByUserId");
+
+                    b.HasIndex("PurchaseOrderTypeId");
+
+                    b.HasIndex("RequiredRoleId");
+
+                    b.HasIndex("RequiredUserId");
+
+                    b.HasIndex("UpdatedByUserId");
+
+                    b.ToTable("PurchaseOrderTypeApprovalSteps", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_PurchaseOrderTypeApprovalSteps_ExactlyOneRequiredRoleOrUser", "(\"RequiredRoleId\" IS NOT NULL AND \"RequiredUserId\" IS NULL) OR (\"RequiredRoleId\" IS NULL AND \"RequiredUserId\" IS NOT NULL)");
+                        });
                 });
 
             modelBuilder.Entity("PurchaseOrderManagement.Api.Entities.Quotation", b =>
@@ -372,6 +617,11 @@ namespace PurchaseOrderManagement.Api.Migrations
 
                     b.Property<int?>("CreatedByUserId")
                         .HasColumnType("integer");
+
+                    b.Property<string>("CurrencyCode")
+                        .IsRequired()
+                        .HasColumnType("char(3)")
+                        .HasColumnName("CurrencyCode");
 
                     b.Property<DateTime?>("DeletedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -401,7 +651,7 @@ namespace PurchaseOrderManagement.Api.Migrations
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
-                    b.Property<int>("SupplierBidId")
+                    b.Property<int>("SupplierId")
                         .HasColumnType("integer");
 
                     b.Property<DateTime?>("UpdatedAtUtc")
@@ -414,11 +664,13 @@ namespace PurchaseOrderManagement.Api.Migrations
 
                     b.HasIndex("CreatedByUserId");
 
+                    b.HasIndex("CurrencyCode");
+
                     b.HasIndex("DeletedByUserId");
 
                     b.HasIndex("FileId");
 
-                    b.HasIndex("SupplierBidId");
+                    b.HasIndex("SupplierId");
 
                     b.HasIndex("UpdatedByUserId");
 
@@ -694,7 +946,7 @@ namespace PurchaseOrderManagement.Api.Migrations
                         .HasMaxLength(2048)
                         .HasColumnType("character varying(2048)");
 
-                    b.Property<int>("PurchaseOrderId")
+                    b.Property<int?>("PurchaseOrderId")
                         .HasColumnType("integer");
 
                     b.Property<int>("SupplierId")
@@ -740,6 +992,11 @@ namespace PurchaseOrderManagement.Api.Migrations
 
                     b.Property<int?>("CreatedByUserId")
                         .HasColumnType("integer");
+
+                    b.Property<string>("CurrencyCode")
+                        .IsRequired()
+                        .HasColumnType("char(3)")
+                        .HasColumnName("CurrencyCode");
 
                     b.Property<DateTime?>("DeletedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -802,6 +1059,8 @@ namespace PurchaseOrderManagement.Api.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("CurrencyCode");
 
                     b.HasIndex("DeletedByUserId");
 
@@ -1037,6 +1296,12 @@ namespace PurchaseOrderManagement.Api.Migrations
                         .HasForeignKey("CreatedByUserId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("PurchaseOrderManagement.Api.Entities.Currency", "Currency")
+                        .WithMany()
+                        .HasForeignKey("CurrencyCode")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("PurchaseOrderManagement.Api.Entities.User", null)
                         .WithMany()
                         .HasForeignKey("DeletedByUserId")
@@ -1047,6 +1312,16 @@ namespace PurchaseOrderManagement.Api.Migrations
                         .HasForeignKey("IssuerUserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("PurchaseOrderManagement.Api.Entities.PurchaseOrderType", "PurchaseOrderType")
+                        .WithMany("PurchaseOrders")
+                        .HasForeignKey("PurchaseOrderTypeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PurchaseOrderManagement.Api.Entities.Company", "TargetCompany")
+                        .WithMany()
+                        .HasForeignKey("TargetCompanyId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("PurchaseOrderManagement.Api.Entities.User", null)
                         .WithMany()
@@ -1059,7 +1334,32 @@ namespace PurchaseOrderManagement.Api.Migrations
 
                     b.Navigation("Company");
 
+                    b.Navigation("Currency");
+
                     b.Navigation("IssuerUser");
+
+                    b.Navigation("PurchaseOrderType");
+
+                    b.Navigation("TargetCompany");
+                });
+
+            modelBuilder.Entity("PurchaseOrderManagement.Api.Entities.PurchaseOrderCurrencyTotal", b =>
+                {
+                    b.HasOne("PurchaseOrderManagement.Api.Entities.Currency", "Currency")
+                        .WithMany()
+                        .HasForeignKey("CurrencyCode")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PurchaseOrderManagement.Api.Entities.PurchaseOrder", "PurchaseOrder")
+                        .WithMany("CurrencyTotals")
+                        .HasForeignKey("PurchaseOrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Currency");
+
+                    b.Navigation("PurchaseOrder");
                 });
 
             modelBuilder.Entity("PurchaseOrderManagement.Api.Entities.PurchaseOrderLineItem", b =>
@@ -1068,6 +1368,12 @@ namespace PurchaseOrderManagement.Api.Migrations
                         .WithMany()
                         .HasForeignKey("CreatedByUserId")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PurchaseOrderManagement.Api.Entities.Currency", "Currency")
+                        .WithMany()
+                        .HasForeignKey("CurrencyCode")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
 
                     b.HasOne("PurchaseOrderManagement.Api.Entities.User", null)
                         .WithMany()
@@ -1090,9 +1396,103 @@ namespace PurchaseOrderManagement.Api.Migrations
                         .HasForeignKey("UpdatedByUserId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.Navigation("Currency");
+
                     b.Navigation("PurchaseOrder");
 
                     b.Navigation("SourceSupplierBidItem");
+                });
+
+            modelBuilder.Entity("PurchaseOrderManagement.Api.Entities.PurchaseOrderType", b =>
+                {
+                    b.HasOne("PurchaseOrderManagement.Api.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PurchaseOrderManagement.Api.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("DeletedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PurchaseOrderManagement.Api.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("PurchaseOrderManagement.Api.Entities.PurchaseOrderTypeAllowedCreatorRole", b =>
+                {
+                    b.HasOne("PurchaseOrderManagement.Api.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PurchaseOrderManagement.Api.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("DeletedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PurchaseOrderManagement.Api.Entities.PurchaseOrderType", "PurchaseOrderType")
+                        .WithMany("AllowedCreatorRoles")
+                        .HasForeignKey("PurchaseOrderTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PurchaseOrderManagement.Api.Entities.Role", "Role")
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PurchaseOrderManagement.Api.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("PurchaseOrderType");
+
+                    b.Navigation("Role");
+                });
+
+            modelBuilder.Entity("PurchaseOrderManagement.Api.Entities.PurchaseOrderTypeApprovalStep", b =>
+                {
+                    b.HasOne("PurchaseOrderManagement.Api.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PurchaseOrderManagement.Api.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("DeletedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PurchaseOrderManagement.Api.Entities.PurchaseOrderType", "PurchaseOrderType")
+                        .WithMany("ApprovalSteps")
+                        .HasForeignKey("PurchaseOrderTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PurchaseOrderManagement.Api.Entities.Role", "RequiredRole")
+                        .WithMany()
+                        .HasForeignKey("RequiredRoleId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PurchaseOrderManagement.Api.Entities.User", "RequiredUser")
+                        .WithMany()
+                        .HasForeignKey("RequiredUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PurchaseOrderManagement.Api.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("PurchaseOrderType");
+
+                    b.Navigation("RequiredRole");
+
+                    b.Navigation("RequiredUser");
                 });
 
             modelBuilder.Entity("PurchaseOrderManagement.Api.Entities.Quotation", b =>
@@ -1101,6 +1501,12 @@ namespace PurchaseOrderManagement.Api.Migrations
                         .WithMany()
                         .HasForeignKey("CreatedByUserId")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PurchaseOrderManagement.Api.Entities.Currency", "Currency")
+                        .WithMany()
+                        .HasForeignKey("CurrencyCode")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
 
                     b.HasOne("PurchaseOrderManagement.Api.Entities.User", null)
                         .WithMany()
@@ -1113,9 +1519,9 @@ namespace PurchaseOrderManagement.Api.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("PurchaseOrderManagement.Api.Entities.SupplierBid", "SupplierBid")
+                    b.HasOne("PurchaseOrderManagement.Api.Entities.Supplier", "Supplier")
                         .WithMany("Quotations")
-                        .HasForeignKey("SupplierBidId")
+                        .HasForeignKey("SupplierId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
@@ -1124,9 +1530,11 @@ namespace PurchaseOrderManagement.Api.Migrations
                         .HasForeignKey("UpdatedByUserId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.Navigation("Currency");
+
                     b.Navigation("File");
 
-                    b.Navigation("SupplierBid");
+                    b.Navigation("Supplier");
                 });
 
             modelBuilder.Entity("PurchaseOrderManagement.Api.Entities.QuotationLineItem", b =>
@@ -1231,8 +1639,7 @@ namespace PurchaseOrderManagement.Api.Migrations
                     b.HasOne("PurchaseOrderManagement.Api.Entities.PurchaseOrder", "PurchaseOrder")
                         .WithMany("SupplierBids")
                         .HasForeignKey("PurchaseOrderId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("PurchaseOrderManagement.Api.Entities.Supplier", "Supplier")
                         .WithMany("SupplierBids")
@@ -1257,6 +1664,12 @@ namespace PurchaseOrderManagement.Api.Migrations
                         .HasForeignKey("CreatedByUserId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("PurchaseOrderManagement.Api.Entities.Currency", "Currency")
+                        .WithMany()
+                        .HasForeignKey("CurrencyCode")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("PurchaseOrderManagement.Api.Entities.User", null)
                         .WithMany()
                         .HasForeignKey("DeletedByUserId")
@@ -1277,6 +1690,8 @@ namespace PurchaseOrderManagement.Api.Migrations
                         .WithMany()
                         .HasForeignKey("UpdatedByUserId")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Currency");
 
                     b.Navigation("SourceQuotationLineItem");
 
@@ -1356,9 +1771,20 @@ namespace PurchaseOrderManagement.Api.Migrations
                 {
                     b.Navigation("Approvals");
 
+                    b.Navigation("CurrencyTotals");
+
                     b.Navigation("PurchaseOrderLineItems");
 
                     b.Navigation("SupplierBids");
+                });
+
+            modelBuilder.Entity("PurchaseOrderManagement.Api.Entities.PurchaseOrderType", b =>
+                {
+                    b.Navigation("AllowedCreatorRoles");
+
+                    b.Navigation("ApprovalSteps");
+
+                    b.Navigation("PurchaseOrders");
                 });
 
             modelBuilder.Entity("PurchaseOrderManagement.Api.Entities.Quotation", b =>
@@ -1387,14 +1813,14 @@ namespace PurchaseOrderManagement.Api.Migrations
 
             modelBuilder.Entity("PurchaseOrderManagement.Api.Entities.Supplier", b =>
                 {
+                    b.Navigation("Quotations");
+
                     b.Navigation("SupplierBids");
                 });
 
             modelBuilder.Entity("PurchaseOrderManagement.Api.Entities.SupplierBid", b =>
                 {
                     b.Navigation("AwardedByPurchaseOrders");
-
-                    b.Navigation("Quotations");
 
                     b.Navigation("SupplierBidItems");
                 });

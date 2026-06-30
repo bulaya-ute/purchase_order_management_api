@@ -29,7 +29,12 @@ public class AppDbContext : DbContext
     public DbSet<SupplierBidItem> SupplierBidItems => Set<SupplierBidItem>();
     public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();
     public DbSet<PurchaseOrderLineItem> PurchaseOrderLineItems => Set<PurchaseOrderLineItem>();
+    public DbSet<PurchaseOrderCurrencyTotal> PurchaseOrderCurrencyTotals => Set<PurchaseOrderCurrencyTotal>();
     public DbSet<Approval> Approvals => Set<Approval>();
+    public DbSet<Currency> Currencies => Set<Currency>();
+    public DbSet<PurchaseOrderType> PurchaseOrderTypes => Set<PurchaseOrderType>();
+    public DbSet<PurchaseOrderTypeApprovalStep> PurchaseOrderTypeApprovalSteps => Set<PurchaseOrderTypeApprovalStep>();
+    public DbSet<PurchaseOrderTypeAllowedCreatorRole> PurchaseOrderTypeAllowedCreatorRoles => Set<PurchaseOrderTypeAllowedCreatorRole>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

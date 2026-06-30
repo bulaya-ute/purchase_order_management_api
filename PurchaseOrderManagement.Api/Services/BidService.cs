@@ -1,10 +1,18 @@
 using Microsoft.EntityFrameworkCore;
 using PurchaseOrderManagement.Api.Data;
+using PurchaseOrderManagement.Api.Dtos.Common;
 using PurchaseOrderManagement.Api.Dtos.SupplierBids;
 using PurchaseOrderManagement.Api.Entities;
+using PurchaseOrderManagement.Api.Enums;
 
 namespace PurchaseOrderManagement.Api.Services;
 
+/// <summary>
+/// Supplier bids are a standalone library (plan section A): a bid can exist on its own
+/// (PurchaseOrderId null) and later be attached to a Draft PO. Bid items may source lines from
+/// any of the supplier's quotations (not just "the" quotation for this bid), each carrying its
+/// own Currency — totals are a per-currency vector, never converted/combined.
+/// </summary>
 public class BidService : IBidService
 {
     private readonly AppDbContext _db;
@@ -14,14 +22,42 @@ public class BidService : IBidService
         _db = db;
     }
 
+    public async Task<IReadOnlyList<SupplierBidSummaryDto>> ListAsync(int? supplierId, int? purchaseOrderId, bool? unattachedOnly, CancellationToken cancellationToken)
+    {
+        var query = _db.SupplierBids.AsNoTracking().AsQueryable();
+
+        if (supplierId is int sid)
+        {
+            query = query.Where(sb => sb.SupplierId == sid);
+        }
+
+        if (purchaseOrderId is int poId)
+        {
+            query = query.Where(sb => sb.PurchaseOrderId == poId);
+        }
+
+        if (unattachedOnly == true)
+        {
+            query = query.Where(sb => sb.PurchaseOrderId == null);
+        }
+
+        return await ProjectSummariesAsync(query, cancellationToken);
+    }
+
     public async Task<IReadOnlyList<SupplierBidSummaryDto>> ListForPurchaseOrderAsync(int purchaseOrderId, CancellationToken cancellationToken)
     {
         await EnsurePurchaseOrderExistsAsync(purchaseOrderId, cancellationToken);
 
+        var query = _db.SupplierBids.AsNoTracking().Where(sb => sb.PurchaseOrderId == purchaseOrderId);
+
+        return await ProjectSummariesAsync(query, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<SupplierBidSummaryDto>> ProjectSummariesAsync(IQueryable<SupplierBid> query, CancellationToken cancellationToken)
+    {
         var now = DateTime.UtcNow;
 
-        var bids = await _db.SupplierBids.AsNoTracking()
-            .Where(sb => sb.PurchaseOrderId == purchaseOrderId)
+        var bids = await query
             .OrderBy(sb => sb.Supplier.SupplierName).ThenBy(sb => sb.Id)
             .Select(sb => new
             {
@@ -30,12 +66,26 @@ public class BidService : IBidService
                 sb.SupplierId,
                 SupplierName = sb.Supplier.SupplierName,
                 sb.Notes,
-                BidTotal = sb.SupplierBidItems.Sum(i => (decimal?)i.LineTotal) ?? 0m,
                 ItemCount = sb.SupplierBidItems.Count,
-                QuotationCount = sb.Quotations.Count,
-                ExpiryDates = sb.Quotations
-                    .Where(q => q.ExpiresAtUtc != null)
-                    .Select(q => q.ExpiresAtUtc!.Value)
+                Totals = sb.SupplierBidItems
+                    .GroupBy(i => i.CurrencyCode)
+                    .Select(g => new CurrencyTotalDto
+                    {
+                        Currency = g.Key,
+                        Subtotal = g.Sum(i => i.LineSubtotal),
+                        TaxAmount = g.Sum(i => i.TaxAmount),
+                        TotalAmount = g.Sum(i => i.LineTotal),
+                    })
+                    .ToList(),
+                // QuotationCount = distinct quotations referenced by this bid's items via their source line.
+                QuotationCount = sb.SupplierBidItems
+                    .Where(i => i.SourceQuotationLineItemId != null)
+                    .Select(i => i.SourceQuotationLineItem!.QuotationId)
+                    .Distinct()
+                    .Count(),
+                ExpiryDates = sb.SupplierBidItems
+                    .Where(i => i.SourceQuotationLineItemId != null && i.SourceQuotationLineItem!.Quotation.ExpiresAtUtc != null)
+                    .Select(i => i.SourceQuotationLineItem!.Quotation.ExpiresAtUtc!.Value)
                     .ToList(),
             })
             .ToListAsync(cancellationToken);
@@ -47,7 +97,7 @@ public class BidService : IBidService
             SupplierId = b.SupplierId,
             SupplierName = b.SupplierName,
             Notes = b.Notes,
-            BidTotal = b.BidTotal,
+            Totals = b.Totals,
             ItemCount = b.ItemCount,
             QuotationCount = b.QuotationCount,
             HasExpiredQuotation = b.ExpiryDates.Any(d => d < now),
@@ -69,9 +119,12 @@ public class BidService : IBidService
         return bid is null ? null : ToDto(bid);
     }
 
-    public async Task<SupplierBidDto> CreateAsync(int purchaseOrderId, CreateSupplierBidRequest request, CancellationToken cancellationToken)
+    public async Task<SupplierBidDto> CreateAsync(int? purchaseOrderId, CreateSupplierBidRequest request, CancellationToken cancellationToken)
     {
-        await EnsurePurchaseOrderExistsAsync(purchaseOrderId, cancellationToken);
+        if (purchaseOrderId is int poId)
+        {
+            await EnsurePurchaseOrderExistsAsync(poId, cancellationToken);
+        }
 
         var supplierExists = await _db.Suppliers.AnyAsync(s => s.Id == request.SupplierId, cancellationToken);
         if (!supplierExists)
@@ -79,12 +132,15 @@ public class BidService : IBidService
             throw ServiceException.Validation($"Supplier {request.SupplierId} was not found.");
         }
 
-        // SupplierBid is keyed by PurchaseOrderId + SupplierId — one bid per supplier per PO.
-        var duplicate = await _db.SupplierBids
-            .AnyAsync(sb => sb.PurchaseOrderId == purchaseOrderId && sb.SupplierId == request.SupplierId, cancellationToken);
-        if (duplicate)
+        if (purchaseOrderId is int existingPoId)
         {
-            throw ServiceException.Conflict("This supplier already has a bid on this purchase order.");
+            // One bid per supplier per PO when attached.
+            var duplicate = await _db.SupplierBids
+                .AnyAsync(sb => sb.PurchaseOrderId == existingPoId && sb.SupplierId == request.SupplierId, cancellationToken);
+            if (duplicate)
+            {
+                throw ServiceException.Conflict("This supplier already has a bid on this purchase order.");
+            }
         }
 
         var bid = new SupplierBid
@@ -100,13 +156,61 @@ public class BidService : IBidService
         return (await GetAsync(bid.Id, cancellationToken))!;
     }
 
+    public async Task<SupplierBidDto> AttachToPurchaseOrderAsync(int supplierBidId, int purchaseOrderId, CancellationToken cancellationToken)
+    {
+        var bid = await _db.SupplierBids.FirstOrDefaultAsync(sb => sb.Id == supplierBidId, cancellationToken)
+            ?? throw ServiceException.NotFound($"Supplier bid {supplierBidId} was not found.");
+
+        if (bid.PurchaseOrderId is not null)
+        {
+            throw ServiceException.Conflict($"Supplier bid {supplierBidId} is already attached to purchase order {bid.PurchaseOrderId}.");
+        }
+
+        var po = await _db.PurchaseOrders.FirstOrDefaultAsync(po => po.Id == purchaseOrderId, cancellationToken)
+            ?? throw ServiceException.Validation($"Purchase order {purchaseOrderId} was not found.");
+
+        if (po.Status != PurchaseOrderStatus.Draft)
+        {
+            throw ServiceException.Conflict($"Cannot attach a bid to purchase order {purchaseOrderId}: composition is frozen once it leaves Draft (current status: {po.Status}).");
+        }
+
+        var duplicate = await _db.SupplierBids
+            .AnyAsync(sb => sb.PurchaseOrderId == purchaseOrderId && sb.SupplierId == bid.SupplierId, cancellationToken);
+        if (duplicate)
+        {
+            throw ServiceException.Conflict("This supplier already has a bid attached to this purchase order.");
+        }
+
+        bid.PurchaseOrderId = purchaseOrderId;
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return (await GetAsync(bid.Id, cancellationToken))!;
+    }
+
     public async Task<SupplierBidItemDto> AddItemAsync(int supplierBidId, CreateSupplierBidItemRequest request, CancellationToken cancellationToken)
     {
-        await EnsureBidExistsAsync(supplierBidId, cancellationToken);
+        var bid = await _db.SupplierBids.FirstOrDefaultAsync(sb => sb.Id == supplierBidId, cancellationToken)
+            ?? throw ServiceException.NotFound($"Supplier bid {supplierBidId} was not found.");
+
+        string currencyCode;
 
         if (request.SourceQuotationLineItemId is int sourceId)
         {
-            await EnsureQuotationLineBelongsToBidAsync(sourceId, supplierBidId, cancellationToken);
+            var sourceLine = await EnsureQuotationLineBelongsToSupplierAsync(sourceId, bid.SupplierId, cancellationToken);
+
+            // Default Currency from the source quotation when not explicitly overridden.
+            currencyCode = string.IsNullOrWhiteSpace(request.Currency)
+                ? sourceLine.Quotation.CurrencyCode
+                : await CurrencyValidation.NormalizeAndValidateAsync(_db, request.Currency, cancellationToken);
+        }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(request.Currency))
+            {
+                throw ServiceException.Validation("Currency is required when no SourceQuotationLineItemId is supplied.");
+            }
+
+            currencyCode = await CurrencyValidation.NormalizeAndValidateAsync(_db, request.Currency, cancellationToken);
         }
 
         var item = new SupplierBidItem
@@ -115,6 +219,7 @@ public class BidService : IBidService
             Description = request.Description.Trim(),
             Quantity = request.Quantity,
             UnitCost = request.UnitCost,
+            CurrencyCode = currencyCode,
             DiscountPercentage = request.DiscountPercentage,
             TaxPercentage = request.TaxPercentage,
             SourceQuotationLineItemId = request.SourceQuotationLineItemId,
@@ -139,9 +244,12 @@ public class BidService : IBidService
             _db.Entry(item).Property<uint>("xmin").OriginalValue = original;
         }
 
+        var currencyCode = await CurrencyValidation.NormalizeAndValidateAsync(_db, request.Currency, cancellationToken);
+
         item.Description = request.Description.Trim();
         item.Quantity = request.Quantity;
         item.UnitCost = request.UnitCost;
+        item.CurrencyCode = currencyCode;
         item.DiscountPercentage = request.DiscountPercentage;
         item.TaxPercentage = request.TaxPercentage;
 
@@ -165,16 +273,17 @@ public class BidService : IBidService
 
     public async Task<SupplierBidDto> SeedItemsFromQuotationAsync(int supplierBidId, SeedBidItemsFromQuotationRequest request, CancellationToken cancellationToken)
     {
-        await EnsureBidExistsAsync(supplierBidId, cancellationToken);
+        var bid = await _db.SupplierBids.FirstOrDefaultAsync(sb => sb.Id == supplierBidId, cancellationToken)
+            ?? throw ServiceException.NotFound($"Supplier bid {supplierBidId} was not found.");
 
         var quotation = await _db.Quotations.AsNoTracking()
             .Include(q => q.QuotationLineItems)
             .FirstOrDefaultAsync(q => q.Id == request.QuotationId, cancellationToken)
             ?? throw ServiceException.Validation($"Quotation {request.QuotationId} was not found.");
 
-        if (quotation.SupplierBidId != supplierBidId)
+        if (quotation.SupplierId != bid.SupplierId)
         {
-            throw ServiceException.Validation($"Quotation {request.QuotationId} does not belong to supplier bid {supplierBidId}.");
+            throw ServiceException.Validation($"Quotation {request.QuotationId} does not belong to the same supplier as supplier bid {supplierBidId}.");
         }
 
         if (quotation.QuotationLineItems.Count == 0)
@@ -184,7 +293,7 @@ public class BidService : IBidService
 
         foreach (var line in quotation.QuotationLineItems.OrderBy(li => li.Id))
         {
-            // Copy qty/desc/unitcost; discount/tax default to none and are then editable (docs/02).
+            // Copy qty/desc/unitcost/currency; discount/tax default to none and are then editable (docs/02).
             var item = new SupplierBidItem
             {
                 SupplierBidId = supplierBidId,
@@ -192,6 +301,7 @@ public class BidService : IBidService
                 Description = line.Description,
                 Quantity = line.Quantity,
                 UnitCost = line.UnitCost,
+                CurrencyCode = quotation.CurrencyCode,
                 DiscountPercentage = null,
                 TaxPercentage = null,
             };
@@ -226,6 +336,18 @@ public class BidService : IBidService
             .Select(ToItemDto)
             .ToList();
 
+        var totals = items
+            .GroupBy(i => i.Currency)
+            .Select(g => new CurrencyTotalDto
+            {
+                Currency = g.Key,
+                Subtotal = g.Sum(i => i.LineSubtotal),
+                TaxAmount = g.Sum(i => i.TaxAmount),
+                TotalAmount = g.Sum(i => i.LineTotal),
+            })
+            .OrderBy(t => t.Currency)
+            .ToList();
+
         return new SupplierBidDto
         {
             Id = bid.Id,
@@ -233,7 +355,7 @@ public class BidService : IBidService
             SupplierId = bid.SupplierId,
             SupplierName = bid.Supplier.SupplierName,
             Notes = bid.Notes,
-            BidTotal = items.Sum(i => i.LineTotal),
+            Totals = totals,
             ItemCount = items.Count,
             Items = items,
             RowVersion = rowVersion,
@@ -248,6 +370,7 @@ public class BidService : IBidService
         Description = item.Description,
         Quantity = item.Quantity,
         UnitCost = item.UnitCost,
+        Currency = item.CurrencyCode,
         DiscountPercentage = item.DiscountPercentage,
         DiscountAmount = item.DiscountAmount,
         TaxPercentage = item.TaxPercentage,
@@ -266,22 +389,18 @@ public class BidService : IBidService
         }
     }
 
-    private async Task EnsureBidExistsAsync(int supplierBidId, CancellationToken cancellationToken)
+    private async Task<QuotationLineItem> EnsureQuotationLineBelongsToSupplierAsync(int quotationLineItemId, int supplierId, CancellationToken cancellationToken)
     {
-        var exists = await _db.SupplierBids.AnyAsync(sb => sb.Id == supplierBidId, cancellationToken);
-        if (!exists)
-        {
-            throw ServiceException.NotFound($"Supplier bid {supplierBidId} was not found.");
-        }
-    }
+        var line = await _db.QuotationLineItems
+            .Include(li => li.Quotation)
+            .FirstOrDefaultAsync(li => li.Id == quotationLineItemId, cancellationToken)
+            ?? throw ServiceException.Validation($"Quotation line item {quotationLineItemId} was not found.");
 
-    private async Task EnsureQuotationLineBelongsToBidAsync(int quotationLineItemId, int supplierBidId, CancellationToken cancellationToken)
-    {
-        var belongs = await _db.QuotationLineItems
-            .AnyAsync(li => li.Id == quotationLineItemId && li.Quotation.SupplierBidId == supplierBidId, cancellationToken);
-        if (!belongs)
+        if (line.Quotation.SupplierId != supplierId)
         {
-            throw ServiceException.Validation($"Quotation line item {quotationLineItemId} does not belong to supplier bid {supplierBidId}.");
+            throw ServiceException.Validation($"Quotation line item {quotationLineItemId} does not belong to the bid's supplier.");
         }
+
+        return line;
     }
 }

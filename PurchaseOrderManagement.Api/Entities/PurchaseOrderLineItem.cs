@@ -2,8 +2,9 @@ namespace PurchaseOrderManagement.Api.Entities;
 
 /// <summary>
 /// The final, locked-in lines that make up the PO. For a bid-based PO these are created at the
-/// moment the PO is Approved (copied from the awarded SupplierBidItems); for a direct-entry PO
-/// they are typed in Draft and locked at submit. See docs/03-PURCHASE-ORDERS.md.
+/// moment the PO is Approved (copied from the awarded SupplierBidItems, including Currency); for
+/// a direct-entry PO they are typed in Draft (Currency = the PO's single Currency) and locked at
+/// submit. See docs/03-PURCHASE-ORDERS.md.
 /// </summary>
 public class PurchaseOrderLineItem : BaseEntity
 {
@@ -17,6 +18,9 @@ public class PurchaseOrderLineItem : BaseEntity
     public string Description { get; set; } = null!;
     public decimal Quantity { get; set; }
     public decimal UnitCost { get; set; }
+
+    public string CurrencyCode { get; set; } = null!;
+    public Currency Currency { get; set; } = null!;
 
     public decimal? DiscountPercentage { get; set; }
     public decimal DiscountAmount { get; set; }

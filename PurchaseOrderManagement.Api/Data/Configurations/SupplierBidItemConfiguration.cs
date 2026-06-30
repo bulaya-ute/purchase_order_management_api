@@ -25,6 +25,16 @@ public class SupplierBidItemConfiguration : IEntityTypeConfiguration<SupplierBid
         builder.Property(bi => bi.LineSubtotal).HasColumnType("numeric(18,2)").IsRequired();
         builder.Property(bi => bi.LineTotal).HasColumnType("numeric(18,2)").IsRequired();
 
+        builder.Property(bi => bi.CurrencyCode)
+            .HasColumnName("CurrencyCode")
+            .HasColumnType("char(3)")
+            .IsRequired();
+
+        builder.HasOne(bi => bi.Currency)
+            .WithMany()
+            .HasForeignKey(bi => bi.CurrencyCode)
+            .OnDelete(DeleteBehavior.Restrict);
+
         builder.HasOne(bi => bi.SupplierBid)
             .WithMany(sb => sb.SupplierBidItems)
             .HasForeignKey(bi => bi.SupplierBidId)
