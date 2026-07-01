@@ -90,6 +90,7 @@ public class PurchaseOrderService : IPurchaseOrderService
             .Include(p => p.Approvals).ThenInclude(a => a.RequiredRole)
             .Include(p => p.Approvals).ThenInclude(a => a.RequiredUser)
             .Include(p => p.Approvals).ThenInclude(a => a.ApprovedByUser)
+            .Include(p => p.AttachedSupplierBids)
             .FirstOrDefaultAsync(p => p.Id == id, cancellationToken);
 
         if (po is null)
@@ -292,6 +293,148 @@ public class PurchaseOrderService : IPurchaseOrderService
         await RecomputeAggregatesAsync(purchaseOrderId, cancellationToken);
     }
 
+    // ----- Composition: Supplier Bid attachment (Draft only, lock on primary) -----
+
+    public async Task<PurchaseOrderDto> AttachSupplierBidAsync(int purchaseOrderId, int supplierBidId, bool isPrimary, CancellationToken cancellationToken)
+    {
+        var po = await GetTrackedPurchaseOrderAsync(purchaseOrderId, cancellationToken);
+
+        var actingUserId = _currentUser.UserId
+            ?? throw ServiceException.Forbidden("An authenticated user is required.");
+
+        if (po.IssuerUserId != actingUserId)
+        {
+            throw ServiceException.Forbidden("Only the PO creator may attach supplier bids.");
+        }
+
+        if (po.Status != PurchaseOrderStatus.Draft)
+        {
+            throw ServiceException.Validation("Supplier bids can only be attached while the PO is in Draft.");
+        }
+
+        var primaryAlreadySet = await _db.PurchaseOrderSupplierBids
+            .AnyAsync(posb => posb.PurchaseOrderId == purchaseOrderId && posb.IsPrimary, cancellationToken);
+        if (primaryAlreadySet)
+        {
+            throw ServiceException.Validation("Supplier bids are locked because a primary bid has already been set.");
+        }
+
+        var alreadyAttached = await _db.PurchaseOrderSupplierBids
+            .AnyAsync(posb => posb.PurchaseOrderId == purchaseOrderId && posb.SupplierBidId == supplierBidId, cancellationToken);
+        if (alreadyAttached)
+        {
+            throw ServiceException.Validation("This bid is already attached to the PO.");
+        }
+
+        var bidExists = await _db.SupplierBids.AnyAsync(sb => sb.Id == supplierBidId, cancellationToken);
+        if (!bidExists)
+        {
+            throw ServiceException.NotFound($"Supplier bid {supplierBidId} was not found.");
+        }
+
+        _db.PurchaseOrderSupplierBids.Add(new PurchaseOrderSupplierBid
+        {
+            PurchaseOrderId = purchaseOrderId,
+            SupplierBidId = supplierBidId,
+            IsPrimary = isPrimary,
+            AddedAtUtc = DateTime.UtcNow,
+        });
+
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return (await GetAsync(purchaseOrderId, cancellationToken))!;
+    }
+
+    public async Task DetachSupplierBidAsync(int purchaseOrderId, int supplierBidId, CancellationToken cancellationToken)
+    {
+        var po = await GetTrackedPurchaseOrderAsync(purchaseOrderId, cancellationToken);
+
+        var actingUserId = _currentUser.UserId
+            ?? throw ServiceException.Forbidden("An authenticated user is required.");
+
+        if (po.IssuerUserId != actingUserId)
+        {
+            throw ServiceException.Forbidden("Only the PO creator may detach supplier bids.");
+        }
+
+        if (po.Status != PurchaseOrderStatus.Draft)
+        {
+            throw ServiceException.Validation("Supplier bids can only be detached while the PO is in Draft.");
+        }
+
+        var primaryAlreadySet = await _db.PurchaseOrderSupplierBids
+            .AnyAsync(posb => posb.PurchaseOrderId == purchaseOrderId && posb.IsPrimary, cancellationToken);
+        if (primaryAlreadySet)
+        {
+            throw ServiceException.Validation("Supplier bids are locked because a primary bid has already been set.");
+        }
+
+        var junction = await _db.PurchaseOrderSupplierBids
+            .FirstOrDefaultAsync(posb => posb.PurchaseOrderId == purchaseOrderId && posb.SupplierBidId == supplierBidId, cancellationToken)
+            ?? throw ServiceException.NotFound("This bid is not attached to the PO.");
+
+        _db.PurchaseOrderSupplierBids.Remove(junction);
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task SetPrimarySupplierBidAsync(int purchaseOrderId, int supplierBidId, CancellationToken cancellationToken)
+    {
+        var po = await GetTrackedPurchaseOrderAsync(purchaseOrderId, cancellationToken);
+
+        var primaryAlreadySet = await _db.PurchaseOrderSupplierBids
+            .AnyAsync(posb => posb.PurchaseOrderId == purchaseOrderId && posb.IsPrimary, cancellationToken);
+        if (primaryAlreadySet)
+        {
+            throw ServiceException.Validation("A primary bid is already set and cannot be changed.");
+        }
+
+        // Permission check: PO creator in Draft, OR the current legal approver.
+        var actingUserId = _currentUser.UserId
+            ?? throw ServiceException.Forbidden("An authenticated user is required.");
+
+        var isCreatorInDraft = po.IssuerUserId == actingUserId && po.Status == PurchaseOrderStatus.Draft;
+
+        bool isLegalApprover = false;
+        if (!isCreatorInDraft)
+        {
+            // The legal approver is the first actionable step: lowest SequenceOrder whose entire
+            // peer batch is not yet fully Approved (i.e. at least one Pending at that sequence).
+            // Simplified: the lowest SequenceOrder that has any Pending row — that whole batch
+            // is currently actionable.
+            var lowestPendingSequence = await _db.Approvals
+                .Where(a => a.PurchaseOrderId == purchaseOrderId && a.Status == ApprovalStatus.Pending)
+                .Select(a => (int?)a.SequenceOrder)
+                .MinAsync(cancellationToken);
+
+            if (lowestPendingSequence is int seq)
+            {
+                // The legal approver step(s): all Pending rows at this sequence.
+                var currentStep = await _db.Approvals
+                    .FirstOrDefaultAsync(a => a.PurchaseOrderId == purchaseOrderId
+                        && a.Status == ApprovalStatus.Pending
+                        && a.SequenceOrder == seq
+                        && (a.RequiredUserId == actingUserId
+                            || (a.RequiredRoleId != null
+                                && _db.UserRoles.Any(ur => ur.UserId == actingUserId && ur.RoleId == a.RequiredRoleId))),
+                        cancellationToken);
+
+                isLegalApprover = currentStep is not null;
+            }
+        }
+
+        if (!isCreatorInDraft && !isLegalApprover)
+        {
+            throw ServiceException.Forbidden("Only the PO creator (while in Draft) or the current legal approver may set the primary bid.");
+        }
+
+        var junction = await _db.PurchaseOrderSupplierBids
+            .FirstOrDefaultAsync(posb => posb.PurchaseOrderId == purchaseOrderId && posb.SupplierBidId == supplierBidId, cancellationToken)
+            ?? throw ServiceException.NotFound("This bid is not attached to the PO.");
+
+        junction.IsPrimary = true;
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
     // ----- Composition: awarded bid selection (Draft only) -----
 
     public async Task<PurchaseOrderDto> SelectAwardedBidAsync(int purchaseOrderId, SelectAwardedBidRequest request, CancellationToken cancellationToken)
@@ -389,6 +532,13 @@ public class PurchaseOrderService : IPurchaseOrderService
     {
         var po = await GetTrackedPurchaseOrderAsync(purchaseOrderId, cancellationToken);
         EnsureDraft(po, "submit");
+
+        var hasBids = await _db.PurchaseOrderSupplierBids
+            .AnyAsync(posb => posb.PurchaseOrderId == purchaseOrderId, cancellationToken);
+        if (!hasBids)
+        {
+            throw ServiceException.Validation("At least one Supplier Bid must be attached before submitting a Purchase Order.");
+        }
 
         var hasAwardedBid = po.AwardedSupplierBidId is not null;
         var hasLineItems = await _db.PurchaseOrderLineItems.AnyAsync(li => li.PurchaseOrderId == purchaseOrderId, cancellationToken);
@@ -728,6 +878,15 @@ public class PurchaseOrderService : IPurchaseOrderService
             LineItems = lineItems,
             Approvals = approvals,
             SupplierBids = bidSummaries,
+            AttachedSupplierBids = po.AttachedSupplierBids
+                .OrderBy(posb => posb.AddedAtUtc)
+                .Select(posb => new PurchaseOrderSupplierBidDto
+                {
+                    SupplierBidId = posb.SupplierBidId,
+                    IsPrimary = posb.IsPrimary,
+                    AddedAtUtc = posb.AddedAtUtc,
+                })
+                .ToList(),
             RowVersion = ConcurrencyToken.Encode(_db.Entry(po).Property<uint>("xmin").CurrentValue),
         };
     }

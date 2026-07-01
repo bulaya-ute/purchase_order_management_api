@@ -70,6 +70,29 @@ public class PurchaseOrdersController : ControllerBase
         return NoContent();
     }
 
+    // ----- Composition: Supplier Bid attachment (Draft only, lock on primary) -----
+
+    [HttpPost("{id:int}/supplier-bids")]
+    public async Task<IActionResult> AttachSupplierBid(int id, [FromBody] AttachSupplierBidRequest request, CancellationToken cancellationToken)
+    {
+        var dto = await _purchaseOrderService.AttachSupplierBidAsync(id, request.SupplierBidId, request.IsPrimary, cancellationToken);
+        return Ok(dto);
+    }
+
+    [HttpDelete("{id:int}/supplier-bids/{supplierBidId:int}")]
+    public async Task<IActionResult> DetachSupplierBid(int id, int supplierBidId, CancellationToken cancellationToken)
+    {
+        await _purchaseOrderService.DetachSupplierBidAsync(id, supplierBidId, cancellationToken);
+        return NoContent();
+    }
+
+    [HttpPatch("{id:int}/supplier-bids/{supplierBidId:int}/set-primary")]
+    public async Task<IActionResult> SetPrimarySupplierBid(int id, int supplierBidId, CancellationToken cancellationToken)
+    {
+        await _purchaseOrderService.SetPrimarySupplierBidAsync(id, supplierBidId, cancellationToken);
+        return NoContent();
+    }
+
     // ----- Composition: awarded bid selection (Draft only) -----
 
     [HttpPost("{id:int}/awarded-bid")]

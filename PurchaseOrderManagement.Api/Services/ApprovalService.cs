@@ -85,6 +85,13 @@ public class ApprovalService : IApprovalService
         var approval = await LoadTrackedApprovalAsync(approvalId, cancellationToken);
         var userId = await EnsureEligibleAndUnblockedAsync(approval, cancellationToken);
 
+        var hasPrimary = await _db.PurchaseOrderSupplierBids
+            .AnyAsync(posb => posb.PurchaseOrderId == approval.PurchaseOrderId && posb.IsPrimary, cancellationToken);
+        if (!hasPrimary)
+        {
+            throw ServiceException.Validation("A primary Supplier Bid must be set on the Purchase Order before it can be approved.");
+        }
+
         ApplyConcurrencyToken(approval, request.RowVersion);
 
         await using var transaction = await _db.Database.BeginTransactionAsync(cancellationToken);

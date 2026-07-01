@@ -60,6 +60,9 @@ public class PurchaseOrderDto
     /// <summary>Bid comparison summaries for a bid-based PO; empty for direct-entry POs.</summary>
     public IReadOnlyList<SupplierBidSummaryDto> SupplierBids { get; set; } = Array.Empty<SupplierBidSummaryDto>();
 
+    /// <summary>Junction rows linking all attached Supplier Bids to this PO (primary and alternatives).</summary>
+    public IReadOnlyList<PurchaseOrderSupplierBidDto> AttachedSupplierBids { get; set; } = [];
+
     /// <summary>Base64-encoded xmin concurrency token for the PO header row.</summary>
     public string RowVersion { get; set; } = null!;
 }

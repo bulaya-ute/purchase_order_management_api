@@ -11,6 +11,11 @@ public interface IPurchaseOrderService
     Task<PurchaseOrderDto> CreateAsync(CreatePurchaseOrderRequest request, CancellationToken cancellationToken);
     Task<PurchaseOrderDto> UpdateAsync(int id, UpdatePurchaseOrderRequest request, CancellationToken cancellationToken);
 
+    // ----- Composition: Supplier Bid attachment (Draft only, lock on primary) -----
+    Task<PurchaseOrderDto> AttachSupplierBidAsync(int purchaseOrderId, int supplierBidId, bool isPrimary, CancellationToken cancellationToken);
+    Task DetachSupplierBidAsync(int purchaseOrderId, int supplierBidId, CancellationToken cancellationToken);
+    Task SetPrimarySupplierBidAsync(int purchaseOrderId, int supplierBidId, CancellationToken cancellationToken);
+
     // ----- Composition (Draft only) -----
     Task<PurchaseOrderLineItemDto> AddLineItemAsync(int purchaseOrderId, CreatePurchaseOrderLineItemRequest request, CancellationToken cancellationToken);
     Task<PurchaseOrderLineItemDto> UpdateLineItemAsync(int purchaseOrderId, int lineItemId, UpdatePurchaseOrderLineItemRequest request, CancellationToken cancellationToken);
