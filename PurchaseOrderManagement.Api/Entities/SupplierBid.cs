@@ -22,4 +22,6 @@ public class SupplierBid : BaseEntity
 
     /// <summary>Inverse of PurchaseOrders.AwardedSupplierBidId — the PO(s) that awarded this bid (at most one in practice).</summary>
     public ICollection<PurchaseOrder> AwardedByPurchaseOrders { get; set; } = new List<PurchaseOrder>();
+
+    public ICollection<PurchaseOrderSupplierBid> PurchaseOrderAttachments { get; set; } = new List<PurchaseOrderSupplierBid>();
 }

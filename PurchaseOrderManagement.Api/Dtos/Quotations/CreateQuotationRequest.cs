@@ -30,6 +30,9 @@ public class CreateQuotationRequest
     [StringLength(2048)]
     public string? Notes { get; set; }
 
+    [Range(0, 100)] public decimal? TaxRate { get; set; }
+    [Range(0, 100)] public decimal? DiscountRate { get; set; }
+
     [MinLength(1, ErrorMessage = "At least one line item is required.")]
     public List<CreateQuotationLineItemRequest> LineItems { get; set; } = new();
 }

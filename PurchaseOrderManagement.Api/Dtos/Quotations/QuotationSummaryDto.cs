@@ -20,4 +20,11 @@ public class QuotationSummaryDto
 
     /// <summary>True if at least one of this quotation's line items has been sourced into a SupplierBidItem.</summary>
     public bool IsUsed { get; set; }
+
+    public decimal? TaxRate { get; set; }
+    public decimal? DiscountRate { get; set; }
+    public decimal Subtotal { get; set; }
+    public decimal TaxAmount { get; set; }
+    public decimal DiscountAmount { get; set; }
+    public decimal GrandTotal { get; set; }
 }

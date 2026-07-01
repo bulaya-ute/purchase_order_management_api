@@ -35,6 +35,7 @@ public class AppDbContext : DbContext
     public DbSet<PurchaseOrderType> PurchaseOrderTypes => Set<PurchaseOrderType>();
     public DbSet<PurchaseOrderTypeApprovalStep> PurchaseOrderTypeApprovalSteps => Set<PurchaseOrderTypeApprovalStep>();
     public DbSet<PurchaseOrderTypeAllowedCreatorRole> PurchaseOrderTypeAllowedCreatorRoles => Set<PurchaseOrderTypeAllowedCreatorRole>();
+    public DbSet<PurchaseOrderSupplierBid> PurchaseOrderSupplierBids { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

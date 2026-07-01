@@ -22,6 +22,11 @@ public class QuotationConfiguration : IEntityTypeConfiguration<Quotation>
             .HasColumnType("char(3)")
             .IsRequired();
 
+        // Percentages: decimal(5,2) per docs/05-CROSS-CUTTING-CONVENTIONS.md.
+        // Nullable: null = tax pre-included / no discount specified.
+        builder.Property(q => q.TaxRate).HasColumnType("numeric(5,2)");
+        builder.Property(q => q.DiscountRate).HasColumnType("numeric(5,2)");
+
         builder.HasOne(q => q.Currency)
             .WithMany()
             .HasForeignKey(q => q.CurrencyCode)

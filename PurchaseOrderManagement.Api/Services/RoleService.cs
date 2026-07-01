@@ -96,24 +96,33 @@ public class RoleService : IRoleService
             ?? throw ServiceException.NotFound($"Role {id} was not found.");
 
         if (role.IsSystemRole)
-        {
             throw ServiceException.Forbidden("System roles cannot be deleted.");
-        }
 
-        var hasChildren = await _db.Roles.AnyAsync(r => r.ParentRoleId == id, cancellationToken);
-        if (hasChildren)
-        {
-            throw ServiceException.Conflict("Cannot delete a role that still has child roles.");
-        }
+        // Load the full subtree and collect IDs to delete (BFS).
+        var allRoles = await _db.Roles.ToListAsync(cancellationToken);
+        var toDelete = new List<Role>();
+        CollectSubtree(id, allRoles, toDelete);
 
-        var assignedToUsers = await _db.UserRoles.AnyAsync(ur => ur.RoleId == id, cancellationToken);
-        if (assignedToUsers)
-        {
-            throw ServiceException.Conflict("Cannot delete a role that is still assigned to users.");
-        }
+        // Remove user-role assignments for all roles being deleted.
+        var deleteIds = toDelete.Select(r => r.Id).ToList();
+        var userRoles = await _db.UserRoles.Where(ur => deleteIds.Contains(ur.RoleId)).ToListAsync(cancellationToken);
+        _db.UserRoles.RemoveRange(userRoles);
 
-        _db.Roles.Remove(role);
+        // Delete leaves-first to satisfy FK constraints (children before parent).
+        // Since we collected depth-first, reversing gives leaves first.
+        toDelete.Reverse();
+        _db.Roles.RemoveRange(toDelete);
+
         await _db.SaveChangesAsync(cancellationToken);
+    }
+
+    private static void CollectSubtree(int rootId, List<Role> allRoles, List<Role> result)
+    {
+        var role = allRoles.FirstOrDefault(r => r.Id == rootId);
+        if (role is null) return;
+        result.Add(role);
+        foreach (var child in allRoles.Where(r => r.ParentRoleId == rootId))
+            CollectSubtree(child.Id, allRoles, result);
     }
 
     public async Task<IReadOnlyList<RoleDto>> GetAllowedParentsAsync(CancellationToken cancellationToken)

@@ -61,4 +61,5 @@ public class PurchaseOrder : BaseEntity
     public ICollection<PurchaseOrderLineItem> PurchaseOrderLineItems { get; set; } = new List<PurchaseOrderLineItem>();
     public ICollection<Approval> Approvals { get; set; } = new List<Approval>();
     public ICollection<PurchaseOrderCurrencyTotal> CurrencyTotals { get; set; } = new List<PurchaseOrderCurrencyTotal>();
+    public ICollection<PurchaseOrderSupplierBid> AttachedSupplierBids { get; set; } = new List<PurchaseOrderSupplierBid>();
 }

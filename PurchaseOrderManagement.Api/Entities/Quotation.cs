@@ -25,6 +25,11 @@ public class Quotation : BaseEntity
     public string CurrencyCode { get; set; } = null!;
     public Currency Currency { get; set; } = null!;
 
+    /// <summary>null = tax pre-included in unit costs; 0 = no tax; >0 = rate applied to Subtotal.</summary>
+    public decimal? TaxRate { get; set; }
+    /// <summary>null or 0 = no discount; >0 = rate applied post-tax.</summary>
+    public decimal? DiscountRate { get; set; }
+
     public string? Notes { get; set; }
 
     public ICollection<QuotationLineItem> QuotationLineItems { get; set; } = new List<QuotationLineItem>();

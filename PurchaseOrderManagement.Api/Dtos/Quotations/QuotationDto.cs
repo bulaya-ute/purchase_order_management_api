@@ -16,5 +16,13 @@ public class QuotationDto
     public string Currency { get; set; } = null!;
     public string? Notes { get; set; }
     public bool IsUsed { get; set; }
+
+    public decimal? TaxRate { get; set; }
+    public decimal? DiscountRate { get; set; }
+    public decimal Subtotal { get; set; }
+    public decimal TaxAmount { get; set; }
+    public decimal DiscountAmount { get; set; }
+    public decimal GrandTotal { get; set; }
+
     public IReadOnlyList<QuotationLineItemDto> LineItems { get; set; } = Array.Empty<QuotationLineItemDto>();
 }

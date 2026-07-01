@@ -54,29 +54,44 @@ public class QuotationService : IQuotationService
                 q.QuoteDate,
                 q.ExpiresAtUtc,
                 q.CurrencyCode,
+                q.TaxRate,
+                q.DiscountRate,
                 q.Notes,
                 LineItemCount = q.QuotationLineItems.Count,
+                LineItemSubtotals = q.QuotationLineItems.Select(li => li.Quantity * li.UnitCost).ToList(),
                 IsUsed = q.QuotationLineItems.Any(li => li.SupplierBidItems.Any()),
             })
             .ToListAsync(cancellationToken);
 
-        var projected = quotations.Select(q => new QuotationSummaryDto
+        var projected = quotations.Select(q =>
         {
-            Id = q.Id,
-            SupplierId = q.SupplierId,
-            SupplierName = q.SupplierName,
-            FileId = q.FileId,
-            FileUrl = _fileUrlResolver.Resolve(q.File),
-            OriginalFileName = q.File.OriginalFileName,
-            Description = q.Description,
-            QuoteReference = q.QuoteReference,
-            QuoteDate = q.QuoteDate,
-            ExpiresAtUtc = q.ExpiresAtUtc,
-            IsExpired = q.ExpiresAtUtc.HasValue && q.ExpiresAtUtc.Value < now,
-            Currency = q.CurrencyCode,
-            Notes = q.Notes,
-            LineItemCount = q.LineItemCount,
-            IsUsed = q.IsUsed,
+            var sub = q.LineItemSubtotals.Sum();
+            var tax = q.TaxRate == null ? 0m : sub * q.TaxRate.Value / 100m;
+            var disc = (q.DiscountRate ?? 0m) == 0m ? 0m : (sub + tax) * q.DiscountRate!.Value / 100m;
+            return new QuotationSummaryDto
+            {
+                Id = q.Id,
+                SupplierId = q.SupplierId,
+                SupplierName = q.SupplierName,
+                FileId = q.FileId,
+                FileUrl = _fileUrlResolver.Resolve(q.File),
+                OriginalFileName = q.File.OriginalFileName,
+                Description = q.Description,
+                QuoteReference = q.QuoteReference,
+                QuoteDate = q.QuoteDate,
+                ExpiresAtUtc = q.ExpiresAtUtc,
+                IsExpired = q.ExpiresAtUtc.HasValue && q.ExpiresAtUtc.Value < now,
+                Currency = q.CurrencyCode,
+                Notes = q.Notes,
+                LineItemCount = q.LineItemCount,
+                IsUsed = q.IsUsed,
+                TaxRate = q.TaxRate,
+                DiscountRate = q.DiscountRate,
+                Subtotal = sub,
+                TaxAmount = tax,
+                DiscountAmount = disc,
+                GrandTotal = sub + tax - disc,
+            };
         });
 
         if (isUsed is bool used)
@@ -129,6 +144,8 @@ public class QuotationService : IQuotationService
             QuoteDate = request.QuoteDate,
             ExpiresAtUtc = request.ExpiresAtUtc,
             CurrencyCode = currencyCode,
+            TaxRate = request.TaxRate,
+            DiscountRate = request.DiscountRate,
             Notes = string.IsNullOrWhiteSpace(request.Notes) ? null : request.Notes.Trim(),
         };
 
@@ -151,6 +168,9 @@ public class QuotationService : IQuotationService
     private QuotationDto ToDto(Quotation quotation)
     {
         var now = DateTime.UtcNow;
+        var sub = quotation.QuotationLineItems.Sum(li => li.Quantity * li.UnitCost);
+        var tax = quotation.TaxRate == null ? 0m : sub * quotation.TaxRate.Value / 100m;
+        var disc = (quotation.DiscountRate ?? 0m) == 0m ? 0m : (sub + tax) * quotation.DiscountRate!.Value / 100m;
         return new QuotationDto
         {
             Id = quotation.Id,
@@ -172,6 +192,12 @@ public class QuotationService : IQuotationService
             Currency = quotation.CurrencyCode,
             Notes = quotation.Notes,
             IsUsed = quotation.QuotationLineItems.Any(li => li.SupplierBidItems.Any()),
+            TaxRate = quotation.TaxRate,
+            DiscountRate = quotation.DiscountRate,
+            Subtotal = sub,
+            TaxAmount = tax,
+            DiscountAmount = disc,
+            GrandTotal = sub + tax - disc,
             LineItems = quotation.QuotationLineItems
                 .OrderBy(li => li.Id)
                 .Select(li => new QuotationLineItemDto
