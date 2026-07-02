@@ -60,6 +60,7 @@ public class PurchaseOrderService : IPurchaseOrderService
                 Currency = po.CurrencyCode,
                 Status = po.Status,
                 TotalAmount = po.TotalAmount,
+                Notes = po.Notes,
                 PaidAtUtc = po.PaidAtUtc,
                 DeliveredAtUtc = po.DeliveredAtUtc,
                 CreatedAtUtc = po.CreatedAtUtc,

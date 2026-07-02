@@ -16,6 +16,7 @@ public class PurchaseOrderSummaryDto
     public string Currency { get; set; } = null!;
     public PurchaseOrderStatus Status { get; set; }
     public decimal TotalAmount { get; set; }
+    public string? Notes { get; set; }
     public DateTime? PaidAtUtc { get; set; }
     public DateTime? DeliveredAtUtc { get; set; }
     public DateTime CreatedAtUtc { get; set; }
