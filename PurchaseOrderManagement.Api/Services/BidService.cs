@@ -79,13 +79,12 @@ public class BidService : IBidService
                     .ToList(),
                 // QuotationCount = distinct quotations referenced by this bid's items via their source line.
                 QuotationCount = sb.SupplierBidItems
-                    .Where(i => i.SourceQuotationLineItemId != null)
-                    .Select(i => i.SourceQuotationLineItem!.QuotationId)
+                    .Select(i => i.SourceQuotationLineItem.QuotationId)
                     .Distinct()
                     .Count(),
                 ExpiryDates = sb.SupplierBidItems
-                    .Where(i => i.SourceQuotationLineItemId != null && i.SourceQuotationLineItem!.Quotation.ExpiresAtUtc != null)
-                    .Select(i => i.SourceQuotationLineItem!.Quotation.ExpiresAtUtc!.Value)
+                    .Where(i => i.SourceQuotationLineItem.Quotation.ExpiresAtUtc != null)
+                    .Select(i => i.SourceQuotationLineItem.Quotation.ExpiresAtUtc!.Value)
                     .ToList(),
             })
             .ToListAsync(cancellationToken);
@@ -114,6 +113,8 @@ public class BidService : IBidService
         var bid = await _db.SupplierBids
             .Include(sb => sb.Supplier)
             .Include(sb => sb.SupplierBidItems)
+                .ThenInclude(i => i.SourceQuotationLineItem)
+                    .ThenInclude(l => l.Quotation)
             .FirstOrDefaultAsync(sb => sb.Id == id, cancellationToken);
 
         return bid is null ? null : ToDto(bid);
@@ -192,26 +193,12 @@ public class BidService : IBidService
         var bid = await _db.SupplierBids.FirstOrDefaultAsync(sb => sb.Id == supplierBidId, cancellationToken)
             ?? throw ServiceException.NotFound($"Supplier bid {supplierBidId} was not found.");
 
-        string currencyCode;
+        var sourceLine = await EnsureQuotationLineBelongsToSupplierAsync(request.SourceQuotationLineItemId, bid.SupplierId, cancellationToken);
 
-        if (request.SourceQuotationLineItemId is int sourceId)
-        {
-            var sourceLine = await EnsureQuotationLineBelongsToSupplierAsync(sourceId, bid.SupplierId, cancellationToken);
-
-            // Default Currency from the source quotation when not explicitly overridden.
-            currencyCode = string.IsNullOrWhiteSpace(request.Currency)
-                ? sourceLine.Quotation.CurrencyCode
-                : await CurrencyValidation.NormalizeAndValidateAsync(_db, request.Currency, cancellationToken);
-        }
-        else
-        {
-            if (string.IsNullOrWhiteSpace(request.Currency))
-            {
-                throw ServiceException.Validation("Currency is required when no SourceQuotationLineItemId is supplied.");
-            }
-
-            currencyCode = await CurrencyValidation.NormalizeAndValidateAsync(_db, request.Currency, cancellationToken);
-        }
+        // Default Currency from the source quotation when not explicitly overridden.
+        var currencyCode = string.IsNullOrWhiteSpace(request.Currency)
+            ? sourceLine.Quotation.CurrencyCode
+            : await CurrencyValidation.NormalizeAndValidateAsync(_db, request.Currency, cancellationToken);
 
         var item = new SupplierBidItem
         {
@@ -367,6 +354,8 @@ public class BidService : IBidService
         Id = item.Id,
         SupplierBidId = item.SupplierBidId,
         SourceQuotationLineItemId = item.SourceQuotationLineItemId,
+        SourceQuotationId = item.SourceQuotationLineItem.QuotationId,
+        SourceQuotationReference = item.SourceQuotationLineItem.Quotation.QuoteReference,
         Description = item.Description,
         Quantity = item.Quantity,
         UnitCost = item.UnitCost,

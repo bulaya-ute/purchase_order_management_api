@@ -750,13 +750,12 @@ public class PurchaseOrderService : IPurchaseOrderService
                     .ToList(),
                 ItemCount = sb.SupplierBidItems.Count,
                 QuotationCount = sb.SupplierBidItems
-                    .Where(i => i.SourceQuotationLineItemId != null)
-                    .Select(i => i.SourceQuotationLineItem!.QuotationId)
+                    .Select(i => i.SourceQuotationLineItem.QuotationId)
                     .Distinct()
                     .Count(),
                 ExpiryDates = sb.SupplierBidItems
-                    .Where(i => i.SourceQuotationLineItemId != null && i.SourceQuotationLineItem!.Quotation.ExpiresAtUtc != null)
-                    .Select(i => i.SourceQuotationLineItem!.Quotation.ExpiresAtUtc!.Value)
+                    .Where(i => i.SourceQuotationLineItem.Quotation.ExpiresAtUtc != null)
+                    .Select(i => i.SourceQuotationLineItem.Quotation.ExpiresAtUtc!.Value)
                     .ToList(),
             })
             .ToListAsync(cancellationToken);

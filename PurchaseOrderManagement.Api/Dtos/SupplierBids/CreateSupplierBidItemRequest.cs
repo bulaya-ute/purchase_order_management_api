@@ -19,8 +19,8 @@ public class CreateSupplierBidItemRequest
     public decimal UnitCost { get; set; }
 
     /// <summary>
-    /// ISO 4217 code. Optional when SourceQuotationLineItemId is supplied (defaults from the
-    /// source quotation's Currency); required otherwise. Must reference an active Currency row.
+    /// ISO 4217 code. Optional — defaults from the source quotation's Currency when omitted.
+    /// Must reference an active Currency row if supplied.
     /// </summary>
     [StringLength(3, MinimumLength = 3)]
     public string? Currency { get; set; }
@@ -31,6 +31,6 @@ public class CreateSupplierBidItemRequest
     [Range(0, 100)]
     public decimal? TaxPercentage { get; set; }
 
-    /// <summary>Optional traceability back to the originating quotation line (any quotation belonging to the bid's supplier).</summary>
-    public int? SourceQuotationLineItemId { get; set; }
+    /// <summary>Required — every bid item must trace to a quotation line belonging to the bid's supplier.</summary>
+    public int SourceQuotationLineItemId { get; set; }
 }

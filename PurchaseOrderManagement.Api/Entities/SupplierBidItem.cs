@@ -3,18 +3,18 @@ namespace PurchaseOrderManagement.Api.Entities;
 /// <summary>
 /// The editable, comparison-ready version of quotation lines, scoped to a bid. Cost/tax/discount
 /// rates are tied to the original quote but quantities may be adjusted. SourceQuotationLineItemId
-/// can point at any quotation line for the bid's supplier (not just ones under "this bid").
-/// Currency defaults from the source quotation's Currency when sourced, or is supplied directly
-/// when entered manually. See docs/02-SUPPLIERS-AND-PROCUREMENT.md.
+/// must reference a quotation line belonging to the bid's supplier (any quotation, not just ones
+/// under "this bid"). Currency defaults from the source quotation's Currency when not explicitly
+/// overridden. See docs/02-SUPPLIERS-AND-PROCUREMENT.md.
 /// </summary>
 public class SupplierBidItem : BaseEntity
 {
     public int SupplierBidId { get; set; }
     public SupplierBid SupplierBid { get; set; } = null!;
 
-    /// <summary>Traceability back to the original quoted line. Nullable in case a bid item is added without a backing quotation line.</summary>
-    public int? SourceQuotationLineItemId { get; set; }
-    public QuotationLineItem? SourceQuotationLineItem { get; set; }
+    /// <summary>Traceability back to the original quoted line. Every bid item must reference a quotation line.</summary>
+    public int SourceQuotationLineItemId { get; set; }
+    public QuotationLineItem SourceQuotationLineItem { get; set; } = null!;
 
     public string Description { get; set; } = null!;
     public decimal Quantity { get; set; }
