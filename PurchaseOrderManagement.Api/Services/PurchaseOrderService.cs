@@ -389,43 +389,23 @@ public class PurchaseOrderService : IPurchaseOrderService
             throw ServiceException.Validation("A primary bid is already set and cannot be changed.");
         }
 
-        // Permission check: PO creator in Draft, OR the current legal approver.
+        // Permission check: PO creator (any status), OR any user who appears anywhere in the
+        // approval chain — whether as a named user or via a role they hold.
         var actingUserId = _currentUser.UserId
             ?? throw ServiceException.Forbidden("An authenticated user is required.");
 
-        var isCreatorInDraft = po.IssuerUserId == actingUserId && po.Status == PurchaseOrderStatus.Draft;
+        var isCreator = po.IssuerUserId == actingUserId;
 
-        bool isLegalApprover = false;
-        if (!isCreatorInDraft)
+        bool isAnyApproverInChain = !isCreator && await _db.Approvals
+            .AnyAsync(a => a.PurchaseOrderId == purchaseOrderId &&
+                (a.RequiredUserId == actingUserId ||
+                 (a.RequiredRoleId != null &&
+                  _db.UserRoles.Any(ur => ur.UserId == actingUserId && ur.RoleId == a.RequiredRoleId))),
+                cancellationToken);
+
+        if (!isCreator && !isAnyApproverInChain)
         {
-            // The legal approver is the first actionable step: lowest SequenceOrder whose entire
-            // peer batch is not yet fully Approved (i.e. at least one Pending at that sequence).
-            // Simplified: the lowest SequenceOrder that has any Pending row — that whole batch
-            // is currently actionable.
-            var lowestPendingSequence = await _db.Approvals
-                .Where(a => a.PurchaseOrderId == purchaseOrderId && a.Status == ApprovalStatus.Pending)
-                .Select(a => (int?)a.SequenceOrder)
-                .MinAsync(cancellationToken);
-
-            if (lowestPendingSequence is int seq)
-            {
-                // The legal approver step(s): all Pending rows at this sequence.
-                var currentStep = await _db.Approvals
-                    .FirstOrDefaultAsync(a => a.PurchaseOrderId == purchaseOrderId
-                        && a.Status == ApprovalStatus.Pending
-                        && a.SequenceOrder == seq
-                        && (a.RequiredUserId == actingUserId
-                            || (a.RequiredRoleId != null
-                                && _db.UserRoles.Any(ur => ur.UserId == actingUserId && ur.RoleId == a.RequiredRoleId))),
-                        cancellationToken);
-
-                isLegalApprover = currentStep is not null;
-            }
-        }
-
-        if (!isCreatorInDraft && !isLegalApprover)
-        {
-            throw ServiceException.Forbidden("Only the PO creator (while in Draft) or the current legal approver may set the primary bid.");
+            throw ServiceException.Forbidden("Only the PO creator or a member of the approval chain may award a bid.");
         }
 
         var junction = await _db.PurchaseOrderSupplierBids
